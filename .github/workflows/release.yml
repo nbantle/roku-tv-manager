@@ -1,0 +1,96 @@
+# Builds the Windows and Mac apps and attaches them to a GitHub release.
+#
+# To publish a new version: bump "version" in package.json, commit, then push a
+# tag with the same number, e.g.  git tag v1.0.1 && git push origin v1.0.1
+# (or run this workflow by hand from the Actions tab to just build the files).
+name: Build and release
+
+on:
+  push:
+    tags: ['v*']
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      - run: npm test
+
+  windows:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run package:win
+      - name: Zip
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          Compress-Archive -Path "dist/Roku TV Manager-win32-x64" -DestinationPath "Roku-TV-Manager-$version-Windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: Roku-TV-Manager-*-Windows-x64.zip
+
+  mac:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run package:mac
+      - name: Sign (ad hoc) and zip
+        run: |
+          version=$(node -p "require('./package.json').version")
+          app="dist/Roku TV Manager-darwin-universal/Roku TV Manager.app"
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          ditto -c -k --keepParent "$app" "Roku-TV-Manager-$version-Mac.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: Roku-TV-Manager-*-Mac.zip
+
+  release:
+    needs: [windows, mac]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Roku-TV-Manager-*-Windows-x64.zip
+            Roku-TV-Manager-*-Mac.zip
+          body: |
+            **Download the file for your computer**, unzip it, and open Roku TV Manager.
+            - Windows 10/11: `Roku-TV-Manager-…-Windows-x64.zip`
+            - Mac (Apple Silicon or Intel, macOS 12+): `Roku-TV-Manager-…-Mac.zip`
+
+            First launch: see "Installing" in the README for the one-time Windows SmartScreen / macOS "Open Anyway" step.

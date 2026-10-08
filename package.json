@@ -1,0 +1,21 @@
+{
+  "name": "roku-tv-manager",
+  "productName": "Roku TV Manager",
+  "version": "1.0.0",
+  "description": "Monitors the Roku TVs on your network, keeps them awake, and turns them on and off on a schedule.",
+  "author": "Nate Bantle",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "package:win": "electron-packager . \"Roku TV Manager\" --platform=win32 --arch=x64 --out=dist --overwrite --icon=assets/icon.ico --ignore=^/dist --ignore=^/test --ignore=^/tools --ignore=^/.github --app-copyright=\"Nate Bantle\"",
+    "package:mac": "electron-packager . \"Roku TV Manager\" --platform=darwin --arch=universal --out=dist --overwrite --icon=assets/icon.icns --ignore=^/dist --ignore=^/test --ignore=^/tools --ignore=^/.github --app-bundle-id=com.nbantle.rokutvmanager --extend-info=assets/mac-extra.plist --app-copyright=\"Nate Bantle\""
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^44.4.5"
+  }
+}
