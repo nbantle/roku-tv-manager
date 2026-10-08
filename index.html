@@ -124,7 +124,67 @@
     padding: 9px 16px; border-radius: 10px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: calc(100% - 32px); z-index: 20; }
   #toast.show { opacity: 1; }
   #toast.error { background: var(--err); color: #fff; }
-  .banner { background: var(--err-bg); color: var(--err); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; }
+  .banner { background: var(--err-bg); color: var(--err); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px;
+    display: flex; gap: 8px 14px; align-items: center; flex-wrap: wrap; }
+  .banner.info { background: var(--chip); color: var(--text); }
+  .banner.warn { background: var(--standby-bg); color: var(--text); border: 1px solid var(--standby); }
+  .banner .btn, .banner a.btn { margin-left: auto; text-decoration: none; }
+
+  /* TVs toolbar: group filter + buttons for every visible TV */
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-bottom: 14px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip-btn { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+    border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+  .chip-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .chip-btn.active .muted { color: inherit; opacity: .75; }
+  .bulk { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .bulk .btn { padding: 5px 10px; font-size: 13.5px; }
+
+  /* Card extras */
+  .group-tag { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 0 7px; border-radius: 6px; background: var(--chip); color: var(--muted); }
+  .now-playing { font-size: 13.5px; margin-top: -6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .menu-items { color: var(--text); }
+  .menu-sep { border-top: 1px solid var(--line); margin: 4px 0; }
+  .menu-label { font-size: 12px; color: var(--muted); padding: 4px 10px 2px; }
+  .swatches { display: grid; grid-template-columns: repeat(5, 26px); gap: 6px; padding: 4px 10px 8px; }
+  .menu-items button.swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line); padding: 0; }
+  .menu-items button.swatch.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .menu-items button.swatch.none { background: linear-gradient(135deg, var(--panel) 45%, var(--err) 45% 55%, var(--panel) 55%); }
+
+  /* Card colors */
+  .card[data-color] { background: var(--cbg); color: var(--cfg); border-color: var(--cline); }
+  .card[data-color] .meta, .card[data-color] .kv dt, .card[data-color] .muted { color: var(--cmuted); }
+  .card[data-color] .actions { border-top-color: var(--cline); }
+  .card[data-color] .actions .btn { background: var(--cbtn); color: var(--cfg); border-color: var(--cline); }
+  .card[data-color] .activity .tag, .card[data-color] .group-tag { background: var(--cbtn); color: var(--cfg); }
+  .card[data-color] .err-text { color: var(--cfg); font-weight: 600; }
+  .card[data-color="gray"], .card[data-color="yellow"], .card[data-color="orange"], .card[data-color="pink"] {
+    --cfg: #1c1f24; --cmuted: rgba(0,0,0,.62); --cline: rgba(0,0,0,.16); --cbtn: rgba(255,255,255,.55); }
+  .card[data-color="black"], .card[data-color="red"], .card[data-color="green"], .card[data-color="blue"], .card[data-color="purple"] {
+    --cfg: #ffffff; --cmuted: rgba(255,255,255,.78); --cline: rgba(255,255,255,.24); --cbtn: rgba(255,255,255,.14); }
+  .card[data-color="gray"] { --cbg: #c9cdd3; }
+  .card[data-color="black"] { --cbg: #17191d; }
+  .card[data-color="red"] { --cbg: #c0392b; }
+  .card[data-color="orange"] { --cbg: #f0a04b; }
+  .card[data-color="yellow"] { --cbg: #f5d547; }
+  .card[data-color="green"] { --cbg: #2e8b57; }
+  .card[data-color="blue"] { --cbg: #2563c9; }
+  .card[data-color="purple"] { --cbg: #6a3fc8; }
+  .card[data-color="pink"] { --cbg: #f2a6c6; }
+
+  /* Pop-up windows */
+  dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--text); padding: 18px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.3); max-width: calc(100vw - 32px); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dialog-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .dialog-head h2 { margin: 0; margin-right: auto; }
+  .remote { display: grid; grid-template-columns: repeat(3, 76px); gap: 8px; justify-content: center; }
+  .remote .btn { height: 46px; font-size: 15px; }
+  .remote .ok { font-weight: 700; }
+  .results { max-height: 50vh; overflow: auto; margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+  .results button { text-align: left; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit;
+    padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+  .results button:hover { border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -148,9 +208,16 @@
 
 <main class="wrap">
   <div id="conn-banner" class="banner" hidden>Can't reach Roku TV Manager. Is the app still running on the computer it was installed on?</div>
+  <div id="update-banner" class="banner info" hidden></div>
+  <div id="conflict-banner" class="banner warn" hidden></div>
+  <div id="monitor-banner" class="banner info" hidden></div>
 
   <!-- TVs -->
   <section id="tab-tvs">
+    <div class="toolbar" id="tv-toolbar" hidden>
+      <div class="chips" id="group-chips"></div>
+      <div class="bulk" id="bulk"></div>
+    </div>
     <div id="tv-grid" class="grid"></div>
     <div class="panel" id="add-panel" style="margin-top:16px">
       <h2>Find TVs</h2>
@@ -185,13 +252,20 @@
             <span id="sched-app-wrap" class="row"><select name="app" id="sched-app" aria-label="App"></select>
               <button class="btn" type="button" id="sched-apps-reload" title="Reload the list of apps from the TVs" aria-label="Reload apps">↻</button></span>
             <select name="input" id="sched-input" aria-label="Input"></select>
+            <span id="sched-item-wrap" class="row"><span id="sched-item-name" class="muted">Nothing chosen</span>
+              <button class="btn" type="button" id="sched-item-pick">Choose…</button></span>
           </div>
         </div>
         <div class="sched-row">
           <span class="sched-label">When</span>
           <div class="row">
             <input type="time" name="time" required value="08:00" aria-label="Time">
+            <select name="repeat" id="sched-repeat" aria-label="Repeat">
+              <option value="weekly">every week on</option>
+              <option value="once">once, on</option>
+            </select>
             <div class="days" id="sched-days"></div>
+            <input type="date" name="date" id="sched-date" aria-label="Date" hidden>
           </div>
         </div>
         <div class="sched-row">
@@ -280,9 +354,45 @@
       </div>
     </form>
 
+    <div class="panel" style="margin-top:16px" id="jf-panel">
+      <h2>Jellyfin</h2>
+      <p class="muted small" style="margin-top:-6px">Optional. Connect your Jellyfin server to see what each TV is playing, and to start a playlist or video on a TV, now or from a schedule.</p>
+      <div class="two-col">
+        <label class="field"><span>Server address</span><input type="text" id="jf-url" placeholder="http://192.168.1.10:8096" style="width:100%">
+          <span class="hint">The address you use to open Jellyfin in a browser.</span></label>
+        <label class="field"><span>API key</span><input type="password" id="jf-key" autocomplete="off" style="width:100%">
+          <span class="hint">In Jellyfin: Dashboard → API Keys → +. The key stays on this computer.</span></label>
+      </div>
+      <div class="row">
+        <button class="btn primary" type="button" id="jf-save">Save</button>
+        <button class="btn" type="button" id="jf-test">Test connection</button>
+        <button class="btn danger" type="button" id="jf-forget" hidden>Remove key</button>
+        <span class="small" id="jf-status"></span>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px" id="alerts-panel">
+      <h2>Alerts</h2>
+      <p class="muted small" style="margin-top:-6px">Pop-up notifications on the computer running the app. These save as soon as you change them.</p>
+      <div class="radio-list">
+        <label class="switch"><input type="checkbox" data-alert="offline"><span class="track"></span><span>A TV stops responding (and when it's back)</span></label>
+        <label class="switch"><input type="checkbox" data-alert="turned_off"><span class="track"></span><span>A TV is turned off by someone else</span></label>
+        <label class="switch"><input type="checkbox" data-alert="left_target"><span class="track"></span><span>A TV is switched away from <span class="target-name"></span></span></label>
+      </div>
+      <p class="hint">Changes made by this app (pings, schedules, its own buttons) never trigger an alert. Alerts also appear in the Activity tab.</p>
+      <p class="hint err-text" id="alerts-unsupported" hidden>This computer can't show pop-up notifications, so alerts only appear in the Activity tab.</p>
+    </div>
+
     <div class="panel" style="margin-top:16px" id="app-panel">
       <h2>This computer</h2>
       <p class="muted small" style="margin-top:-6px">These save as soon as you change them.</p>
+      <h3 style="margin-top:6px">Who's in charge</h3>
+      <div class="radio-list">
+        <label><input type="radio" name="role" value="control"> <span><b>In charge:</b> this computer sends keep-awake pings and runs schedules</span></label>
+        <label><input type="radio" name="role" value="monitor"> <span><b>Monitor only:</b> watch the TVs and control them by hand; another computer is in charge</span></label>
+      </div>
+      <p class="hint" id="peers-info"></p>
+      <h3>Startup and sleep</h3>
       <div class="radio-list">
         <label class="switch desktop-only"><input type="checkbox" id="app-login"><span class="track"></span><span>Start Roku TV Manager when this computer starts</span></label>
         <label class="switch"><input type="checkbox" id="app-sleep"><span class="track"></span><span>Keep this computer from sleeping while keep-awake is on</span></label>
@@ -295,6 +405,9 @@
       </div>
       <div id="app-remote-info" class="small" style="margin-top:10px"></div>
       <p class="hint">Anyone on your network who opens this address can control the TVs. Only turn this on for a network you trust.</p>
+      <h3>Updates</h3>
+      <label class="switch"><input type="checkbox" id="app-updates"><span class="track"></span><span>Check GitHub for new versions</span></label>
+      <div id="update-info" class="small" style="margin-top:8px"></div>
       <p class="muted small" id="app-version" style="margin-top:16px"></p>
     </div>
   </section>
@@ -309,8 +422,51 @@
 </main>
 <div id="toast" role="status" aria-live="polite"></div>
 
+<dialog id="ask-dialog" aria-labelledby="ask-title">
+  <form method="dialog" id="ask-form">
+    <div class="dialog-head"><h2 id="ask-title"></h2></div>
+    <label class="field" style="margin-top:0"><span id="ask-label"></span>
+      <input type="text" id="ask-input" style="width:min(420px, 80vw)" list="ask-options" autocomplete="off">
+      <datalist id="ask-options"></datalist>
+      <span class="hint" id="ask-hint"></span></label>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn" type="button" id="ask-cancel">Cancel</button>
+      <button class="btn primary" value="ok">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="remote-dialog" aria-labelledby="remote-title">
+  <div class="dialog-head"><h2 id="remote-title">Remote</h2><button class="btn" type="button" data-close aria-label="Close">✕</button></div>
+  <div class="remote">
+    <button class="btn" data-key="Back">Back</button><button class="btn" data-key="Home">Home</button><button class="btn" data-key="Info" aria-label="Options">✱</button>
+    <span></span><button class="btn" data-key="Up" aria-label="Up">▲</button><span></span>
+    <button class="btn" data-key="Left" aria-label="Left">◀</button><button class="btn ok" data-key="Select">OK</button><button class="btn" data-key="Right" aria-label="Right">▶</button>
+    <span></span><button class="btn" data-key="Down" aria-label="Down">▼</button><span></span>
+    <button class="btn" data-key="Rev" aria-label="Rewind">◀◀</button><button class="btn" data-key="Play" aria-label="Play or pause">▶ ❚❚</button><button class="btn" data-key="Fwd" aria-label="Fast forward">▶▶</button>
+    <button class="btn" data-key="VolumeDown">Vol −</button><button class="btn" data-key="VolumeMute">Mute</button><button class="btn" data-key="VolumeUp">Vol +</button>
+    <button class="btn" data-key="InstantReplay" style="grid-column: span 3">↺ Instant replay</button>
+  </div>
+  <p class="muted small" id="remote-status" style="text-align:center;margin:12px 0 0">Your keyboard works too: arrows, Enter, Backspace.</p>
+</dialog>
+
+<dialog id="jf-dialog" aria-labelledby="jf-title">
+  <div class="dialog-head"><h2 id="jf-title">Play from Jellyfin</h2><button class="btn" type="button" data-close aria-label="Close">✕</button></div>
+  <input type="search" id="jf-search" placeholder="Search your Jellyfin library: playlists, videos, shows" style="width:min(520px, 80vw)" aria-label="Search Jellyfin">
+  <div class="results" id="jf-results"></div>
+</dialog>
+
 <script>
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const COLOR_HEX = { gray: "#c9cdd3", black: "#17191d", red: "#c0392b", orange: "#f0a04b", yellow: "#f5d547", green: "#2e8b57", blue: "#2563c9", purple: "#6a3fc8", pink: "#f2a6c6" };
+const prefs = {  // per-viewer conveniences; the app works without them
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* ignore */ } },
+};
+let groupFilter = prefs.get("rtm.group") || "all";
+let jfDirty = false;        // Jellyfin fields have unsaved edits
+let jfStatusLocked = false; // keep a test result on screen for a moment
+let schedItem = null;       // Jellyfin item chosen in the schedule form  // "all" | "none" | a group name
 let state = null;
 let clockOffset = 0;            // server time - browser time, seconds
 let settingsDirty = false;
@@ -373,6 +529,8 @@ function updateRelTimes() {
 function render() {
   if (!state) return;
   renderSummary();
+  renderBanners();
+  renderToolbar();
   renderCards();
   renderSchedules();
   renderLog();
@@ -390,6 +548,50 @@ function renderSummary() {
     ? `<span class="chip"><b>${counts.on}</b> on</span><span class="chip"><b>${counts.standby}</b> off</span>` +
       (counts.offline ? `<span class="chip"><b>${counts.offline}</b> not responding</span>` : "")
     : "";
+}
+
+function renderBanners() {
+  const a = state.app || {};
+  const ub = $("#update-banner");
+  ub.hidden = !a.update;
+  if (a.update) ub.innerHTML = `Version ${esc(a.update.version)} of Roku TV Manager is available (you have ${esc(a.version)}).
+    <a class="btn primary" href="${esc(a.update.url)}" target="_blank" rel="noopener">Download</a>`;
+  const cb = $("#conflict-banner");
+  cb.hidden = !a.conflict?.length;
+  if (a.conflict?.length) cb.innerHTML = `<span>⚠ <b>${esc(a.conflict.join(", "))}</b> is also in charge of the TVs, so both computers are sending pings and running schedules. Set one of them to Monitor only.</span>
+    <button class="btn" data-role="monitor">Make this computer Monitor only</button>`;
+  const mb = $("#monitor-banner");
+  mb.hidden = state.in_charge;
+  if (!state.in_charge) mb.innerHTML = `<span>Monitor only: this computer shows the TVs and has working buttons, but doesn't send pings or run schedules.</span>
+    <button class="btn" data-role="control">Put this computer in charge</button>`;
+}
+
+function visibleDevices() {
+  if (groupFilter === "all") return state.devices;
+  if (groupFilter === "none") return state.devices.filter(d => !d.group);
+  return state.devices.filter(d => d.group === groupFilter);
+}
+
+function renderToolbar() {
+  const bar = $("#tv-toolbar");
+  bar.hidden = !state.devices.length;
+  if (!state.devices.length) return;
+  if (groupFilter !== "all" && groupFilter !== "none" && !state.groups.includes(groupFilter)) groupFilter = "all";
+  const ungrouped = state.devices.filter(d => !d.group).length;
+  const chip = (value, label, n) => `<button class="chip-btn ${groupFilter === value ? "active" : ""}" data-group="${esc(value)}">${esc(label)} <span class="muted">${n}</span></button>`;
+  $("#group-chips").innerHTML = state.groups.length
+    ? chip("all", "All TVs", state.devices.length) +
+      state.groups.map(g => chip(g, g, state.devices.filter(d => d.group === g).length)).join("") +
+      (ungrouped ? chip("none", "No group", ungrouped) : "")
+    : "";
+  const n = visibleDevices().length;
+  const who = groupFilter === "all" ? (n === 1 ? "This TV" : `All ${n} TVs`) : groupFilter === "none" ? `${n} ungrouped` : `${groupFilter} (${n})`;
+  const t = state.settings.target_app;
+  $("#bulk").innerHTML = `<span class="muted small">${esc(who)}:</span>
+    <button class="btn" data-bulk="power_on">Turn on</button>
+    <button class="btn" data-bulk="power_off">Turn off</button>
+    <button class="btn" data-bulk="launch_target">Open ${esc(t.name)}</button>
+    <button class="btn" data-bulk="ping">Ping</button>`;
 }
 
 function powerLabel(st) {
@@ -411,6 +613,7 @@ function cardHtml(d) {
   const t = state.settings.target_app;
   let activity = st ? esc(st.activity) : "Checking…";
   if (st?.playback) activity += ` <span class="tag">${esc(st.playback)}</span>`;
+  const playing = st?.jellyfin ? `<div class="now-playing" title="${esc(st.jellyfin.title)}">${st.jellyfin.paused ? "❚❚" : "▶"} ${esc(st.jellyfin.title)}</div>` : "";
   if (st?.on_target) activity += ` <span class="tag target">target app</span>`;
   const interval = d.interval_minutes ? `${d.interval_minutes} min (this TV)` : `${d.effective_interval_minutes} min`;
   const lastPing = d.ping.last_result
@@ -420,11 +623,12 @@ function cardHtml(d) {
     <div class="card-head">
       <div>
         <div class="name">${esc(d.name)}</div>
-        <div class="meta">${esc(d.model || "Roku")} · ${esc(d.host)}${d.held_off ? " · held off" : ""}</div>
+        <div class="meta">${d.group ? `<span class="group-tag">${esc(d.group)}</span> ` : ""}${esc(d.model || "Roku")} · ${esc(d.host)}${d.held_off ? " · held off" : ""}</div>
       </div>
       <span class="pill ${cls}">${label}</span>
     </div>
     <div class="activity">${activity}</div>
+    ${playing}
     ${st?.error ? `<div class="err-text">${esc(st.error)}</div>` : ""}
     <dl class="kv">
       <dt>Keep-awake</dt>
@@ -449,6 +653,16 @@ function cardHtml(d) {
       <details class="menu right more" data-menu="more-${esc(d.id)}">
         <summary class="btn" aria-label="More options">⋯</summary>
         <div class="menu-items">
+          <button data-act="remote" ${offline ? "disabled" : ""}>Remote…</button>
+          ${state.jellyfin.configured ? `<button data-act="jellyfin" ${offline ? "disabled" : ""}>Play from Jellyfin…</button>` : ""}
+          <div class="menu-sep"></div>
+          <div class="menu-label">Card color</div>
+          <div class="swatches">
+            <button class="swatch none ${d.color ? "" : "selected"}" data-act="color" data-color="" title="Default" aria-label="Default color"></button>
+            ${state.options.card_colors.map(c => `<button class="swatch ${d.color === c ? "selected" : ""}" data-act="color" data-color="${c}" style="background:${COLOR_HEX[c]}" title="${c[0].toUpperCase() + c.slice(1)}" aria-label="${c}"></button>`).join("")}
+          </div>
+          <button data-act="group">Group${d.group ? `: ${esc(d.group)}` : ""}…</button>
+          <div class="menu-sep"></div>
           <button data-act="rename">Rename…</button>
           <button data-act="interval">Ping interval for this TV…</button>
           <button data-cmd="refresh">Refresh status</button>
@@ -467,13 +681,15 @@ function renderCards() {
     return;
   }
   if (grid.querySelector(".empty")) grid.innerHTML = "";
-  const ids = new Set(state.devices.map(d => d.id));
+  const shown = visibleDevices();
+  const ids = new Set(shown.map(d => d.id));
   for (const el of $$(".card", grid)) if (!ids.has(el.dataset.id)) { el.remove(); cardCache.delete(el.dataset.id); }
 
-  state.devices.forEach((d, i) => {
-    const sig = JSON.stringify([d, state.settings.keepawake, state.settings.target_app], (k, v) => k === "checked_at" ? undefined : v);
+  shown.forEach((d, i) => {
+    const sig = JSON.stringify([d, state.settings.keepawake, state.settings.target_app, state.jellyfin.configured], (k, v) => k === "checked_at" ? undefined : v);
     let el = grid.querySelector(`.card[data-id="${CSS.escape(d.id)}"]`);
     if (!el) { el = document.createElement("div"); el.className = "card"; el.dataset.id = d.id; }
+    if (d.color) el.dataset.color = d.color; else delete el.dataset.color;
     if (grid.children[i] !== el) grid.insertBefore(el, grid.children[i] || null);
     if (cardCache.get(d.id) !== sig) {
       el.innerHTML = cardHtml(d);
@@ -512,6 +728,16 @@ function daysText(days) {
   if (k === "5,6") return "Weekends";
   return days.map(d => DAY_NAMES[d]).join(", ");
 }
+function dateText(ymd) {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+}
+function whenText(s) {
+  if (s.repeat !== "once") return daysText(s.days);
+  const today = new Date(nowServer() * 1000);
+  const past = s.date < `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  return `Once: ${dateText(s.date)}${!s.enabled && past ? " (done)" : ""}`;
+}
 function timeText(hhmm) {
   const [h, m] = hhmm.split(":").map(Number);
   return new Date(2000, 0, 1, h, m).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
@@ -528,8 +754,8 @@ function renderSchedules() {
       <tr data-sched="${esc(s.id)}">
         <td><label class="switch"><input type="checkbox" data-sact="toggle" ${s.enabled ? "checked" : ""} aria-label="Enabled"><span class="track"></span></label></td>
         <td><b>${esc(s.name)}</b>${s.name !== s.summary ? `<div class="muted small">${esc(s.summary)}</div>` : ""}</td>
-        <td style="white-space:nowrap">${timeText(s.time)}<div class="muted small">${daysText(s.days)}</div></td>
-        <td>${s.devices === "all" ? "All TVs" : s.devices.map(id => esc(deviceName(id))).join(", ")}</td>
+        <td style="white-space:nowrap">${timeText(s.time)}<div class="muted small">${whenText(s)}</div></td>
+        <td>${s.devices === "all" ? "All TVs" : [...(s.groups || []).map(g => `${esc(g)} <span class="muted">(group)</span>`), ...s.devices.map(id => esc(deviceName(id)))].join(", ")}</td>
         <td><div class="row" style="justify-content:flex-end">
           <button class="btn" data-sact="run">Run now</button>
           <button class="btn" data-sact="edit">Edit</button>
@@ -548,8 +774,13 @@ function renderSchedules() {
   }
   const box = $("#sched-devices");
   const selected = new Set($$("input[name=dev]:checked", box).map(i => i.value));
+  const selectedGroups = new Set($$("input[name=grp]:checked", box).map(i => i.value));
   const allChecked = $("input[name=dev_all]", box)?.checked ?? true;
+  const sig = JSON.stringify([state.devices.map(d => [d.id, d.name]), state.groups]);
+  if (box.dataset.sig === sig) return;  // don't rebuild while someone is ticking boxes
+  box.dataset.sig = sig;
   box.innerHTML = `<label><input type="checkbox" name="dev_all" ${allChecked ? "checked" : ""}> <b>All TVs</b></label>` +
+    state.groups.map(g => `<label><input type="checkbox" name="grp" value="${esc(g)}" ${selectedGroups.has(g) ? "checked" : ""} ${allChecked ? "disabled" : ""}> <b>${esc(g)}</b> <span class="muted">(group)</span></label>`).join("") +
     state.devices.map(d => `<label><input type="checkbox" name="dev" value="${esc(d.id)}" ${selected.has(d.id) ? "checked" : ""} ${allChecked ? "disabled" : ""}> ${esc(d.name)}</label>`).join("");
 }
 
@@ -581,6 +812,30 @@ function fillSettings() {
 
 function renderAppPanel() {
   const a = state.app || {}, s = state.settings.app;
+  $$("input[name=role]").forEach(r => r.checked = r.value === s.role);
+  const others = a.peers || [];
+  $("#peers-info").innerHTML = (a.computer_name ? `This computer: <b>${esc(a.computer_name)}</b>. ` : "") +
+    (others.length ? "Other copies on this network: " + others.map(p => `<b>${esc(p.name)}</b> (${p.role === "monitor" ? "monitor only" : "in charge"}${p.version ? `, ${esc(p.version)}` : ""})`).join(", ") + "."
+      : a.desktop ? "No other copies of the app found on this network." : "") +
+    (a.presence_error ? ` <span class="err-text">${esc(a.presence_error)}</span>` : "");
+  $("#app-updates").checked = s.check_updates;
+  $("#update-info").innerHTML = a.update
+    ? `Version <b>${esc(a.update.version)}</b> is available. <a href="${esc(a.update.url)}" target="_blank" rel="noopener">Download it</a>.`
+    : !s.check_updates || !a.desktop ? ""
+    : a.update_checked_at ? `You have the latest version (checked <span data-ts="${a.update_checked_at}" data-mode="ago"></span>).`
+    : "Not checked yet. The app checks shortly after it starts, then every 12 hours.";
+  $$("[data-alert]").forEach(c => c.checked = !!state.settings.alerts[c.dataset.alert]);
+  $("#alerts-unsupported").hidden = !a.desktop || a.notifications_supported !== false;
+  if (!jfDirty) {
+    $("#jf-url").value = state.settings.jellyfin.url;
+    $("#jf-key").value = "";
+  }
+  $("#jf-key").placeholder = state.settings.jellyfin.has_api_key ? "Saved. Leave blank to keep it" : "Paste the API key";
+  $("#jf-forget").hidden = !state.settings.jellyfin.has_api_key;
+  if (!jfStatusLocked) {
+    const err = state.jellyfin.error;
+    $("#jf-status").innerHTML = err ? `<span class="err-text">${esc(err)}</span>` : state.jellyfin.configured ? `<span class="muted">Connected</span>` : "";
+  }
   $$(".desktop-only").forEach(el => el.hidden = !window.roku);
   $("#app-login").checked = !!a.open_at_login;
   $("#app-sleep").checked = s.prevent_sleep;
@@ -627,28 +882,62 @@ document.addEventListener("toggle", e => {
   const m = e.target;
   if (m.matches?.("details.menu")) m.open ? openMenus.add(m.dataset.menu) : openMenus.delete(m.dataset.menu);
 }, true);
+// Record a menu as open/closed the moment it's clicked, so a card redrawn
+// before the "toggle" event arrives keeps the menu in the right state.
 document.addEventListener("click", e => {
-  $$("details.menu[open]").forEach(m => { if (!m.contains(e.target)) m.open = false; });
-});
+  const summary = e.target.closest("details.menu > summary");
+  if (!summary) return;
+  const m = summary.parentElement;
+  m.open ? openMenus.delete(m.dataset.menu) : openMenus.add(m.dataset.menu);
+}, true);
+// Close menus and forget them right away: the card may be redrawn before the
+// browser's own "toggle" event arrives, which would re-open the menu.
+function closeMenus(root = document, except = null) {
+  $$("details.menu[open]", root).forEach(m => {
+    if (except && m.contains(except)) return;
+    m.open = false;
+    openMenus.delete(m.dataset.menu);
+  });
+}
+document.addEventListener("click", e => closeMenus(document, e.target));
 
 $("#tv-grid").addEventListener("click", async e => {
   const card = e.target.closest(".card");
   if (!card) return;
   const id = card.dataset.id, d = state.devices.find(x => x.id === id);
   const cmdBtn = e.target.closest("[data-cmd]"), actBtn = e.target.closest("button[data-act]");
-  if (cmdBtn || actBtn) $$("details.menu[open]", card).forEach(m => m.open = false);
+  if (cmdBtn || actBtn) closeMenus(card);
   try {
     if (cmdBtn) {
       cmdBtn.disabled = true;
       const r = await api("POST", `/api/devices/${encodeURIComponent(id)}/command`, { command: cmdBtn.dataset.cmd });
       toast(`${d.name}: ${r.message}`);
     } else if (actBtn?.dataset.act === "rename") {
-      const name = prompt("Name for this TV:", d.name);
+      const name = await askText({ title: "Rename TV", label: "Name", value: d.name });
       if (name) await api("PATCH", `/api/devices/${encodeURIComponent(id)}`, { name });
     } else if (actBtn?.dataset.act === "interval") {
-      const v = prompt(`Ping ${d.name} every how many minutes? Leave blank to use the default (${state.settings.keepawake.interval_minutes} min).`, d.interval_minutes ?? "");
+      const v = await askText({ title: `Ping interval for ${d.name}`, label: "Minutes between pings", value: d.interval_minutes ?? "",
+        hint: `Leave blank to use the default (${state.settings.keepawake.interval_minutes} min).`, type: "number" });
       if (v === null) return;
       await api("PATCH", `/api/devices/${encodeURIComponent(id)}`, { interval_minutes: v.trim() === "" ? null : Number(v) });
+    } else if (actBtn?.dataset.act === "remote") {
+      openRemote(d);
+    } else if (actBtn?.dataset.act === "jellyfin") {
+      openJellyfinPicker(`Play on ${d.name}`, async item => {
+        try {
+          toast(`${d.name}: starting “${item.name}”…`);
+          const r = await api("POST", `/api/devices/${encodeURIComponent(id)}/command`, { command: "jellyfin_play", item });
+          toast(`${d.name}: ${r.message}`);
+        } catch (err) { toast(err.message, true); }
+        refresh();
+      });
+    } else if (actBtn?.dataset.act === "color") {
+      await api("PATCH", `/api/devices/${encodeURIComponent(id)}`, { color: actBtn.dataset.color || null });
+    } else if (actBtn?.dataset.act === "group") {
+      const g = await askText({ title: `Group for ${d.name}`, label: "Group", value: d.group ?? "", options: state.groups,
+        hint: "For example Lobby or Kids Wing. Leave blank for no group." });
+      if (g === null) return;
+      await api("PATCH", `/api/devices/${encodeURIComponent(id)}`, { group: g.trim() || null });
     } else if (actBtn?.dataset.act === "remove") {
       if (confirm(`Remove ${d.name} from the app? It will also be removed from schedules.`)) {
         await api("DELETE", `/api/devices/${encodeURIComponent(id)}`);
@@ -748,9 +1037,17 @@ let appChoices = null; // [{id, name}] from the TVs, loaded on demand
 function updateScheduleFields() {
   const action = schedForm.action.value, then = schedForm.then.value;
   $("#sched-then-wrap").hidden = action !== "power_on";
-  const needs = (kind) => action === (kind === "app" ? "open_app" : "input") || (action === "power_on" && then === kind);
+  const own = { app: "open_app", input: "input", jellyfin: "jellyfin" };
+  const needs = (kind) => action === own[kind] || (action === "power_on" && then === kind);
   $("#sched-app-wrap").hidden = !needs("app");
   $("#sched-input").hidden = !needs("input");
+  $("#sched-item-wrap").hidden = !needs("jellyfin");
+  $("#sched-item-name").textContent = schedItem ? schedItem.name
+    : state?.jellyfin.configured ? "Nothing chosen" : "Set up Jellyfin in Settings first";
+  $("#sched-item-pick").disabled = !state?.jellyfin.configured;
+  const once = schedForm.repeat.value === "once";
+  $("#sched-days").hidden = once;
+  $("#sched-date").hidden = !once;
   if (needs("app") && appChoices === null) loadAppChoices();
 }
 
@@ -777,14 +1074,28 @@ schedForm.action.addEventListener("change", updateScheduleFields);
 schedForm.then.addEventListener("change", updateScheduleFields);
 $("#sched-apps-reload").addEventListener("click", loadAppChoices);
 $("#sched-devices").addEventListener("change", e => {
-  if (e.target.name === "dev_all") $$("input[name=dev]", schedForm).forEach(i => i.disabled = e.target.checked);
+  if (e.target.name === "dev_all") $$("input[name=dev], input[name=grp]", schedForm).forEach(i => i.disabled = e.target.checked);
 });
+schedForm.repeat.addEventListener("change", () => {
+  if (schedForm.repeat.value === "once" && !schedForm.date.value) {
+    const d = new Date(nowServer() * 1000);
+    schedForm.date.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  updateScheduleFields();
+});
+$("#sched-item-pick").addEventListener("click", () => openJellyfinPicker("Choose what to play", item => {
+  schedItem = item;
+  updateScheduleFields();
+}));
 function resetScheduleForm() {
   editingSchedule = null;
   schedForm.reset();
   $$("input[name=day]", schedForm).forEach(i => i.checked = true);
   $("input[name=dev_all]", schedForm).checked = true;
-  $$("input[name=dev]", schedForm).forEach(i => { i.checked = false; i.disabled = true; });
+  $$("input[name=dev], input[name=grp]", schedForm).forEach(i => { i.checked = false; i.disabled = true; });
+  schedItem = null;
+  schedForm.repeat.value = "weekly";
+  schedForm.date.value = "";
   fillAppChoices({ id: state.settings.target_app.id, name: state.settings.target_app.name });
   updateScheduleFields();
   $("#sched-form-title").textContent = "Add a schedule";
@@ -801,9 +1112,13 @@ schedForm.addEventListener("submit", async e => {
     then: schedForm.then.value,
     app: { id: schedForm.app.value, name: schedForm.app.selectedOptions[0]?.textContent ?? "" },
     input: schedForm.input.value,
+    item: schedItem,
     time: schedForm.time.value,
+    repeat: schedForm.repeat.value,
     days: $$("input[name=day]:checked", schedForm).map(i => Number(i.value)),
+    date: schedForm.date.value,
     devices: all ? "all" : $$("input[name=dev]:checked", schedForm).map(i => i.value),
+    groups: all ? [] : $$("input[name=grp]:checked", schedForm).map(i => i.value),
   };
   try {
     if (editingSchedule) await api("PUT", `/api/schedules/${editingSchedule}`, payload);
@@ -830,13 +1145,17 @@ $("#sched-table").addEventListener("click", async e => {
       schedForm.action.value = s.action;
       schedForm.then.value = s.then || "nothing";
       if (s.input) schedForm.input.value = s.input;
+      schedItem = s.item ?? null;
       fillAppChoices(s.app ?? undefined);
-      updateScheduleFields();
       schedForm.time.value = s.time;
-      $$("input[name=day]", schedForm).forEach(i => i.checked = s.days.includes(Number(i.value)));
+      schedForm.repeat.value = s.repeat || "weekly";
+      schedForm.date.value = s.date || "";
+      updateScheduleFields();
+      $$("input[name=day]", schedForm).forEach(i => i.checked = s.repeat === "once" || s.days.includes(Number(i.value)));
       const all = s.devices === "all";
       $("input[name=dev_all]", schedForm).checked = all;
       $$("input[name=dev]", schedForm).forEach(i => { i.disabled = all; i.checked = !all && s.devices.includes(i.value); });
+      $$("input[name=grp]", schedForm).forEach(i => { i.disabled = all; i.checked = !all && (s.groups || []).includes(i.value); });
       $("#sched-form-title").textContent = `Edit “${s.name}”`;
       $("#sched-submit").textContent = "Save changes";
       $("#sched-cancel").hidden = false;
@@ -853,6 +1172,166 @@ $("#sched-table").addEventListener("change", async e => {
   catch (err) { toast(err.message, true); }
   refresh();
 });
+
+// Banners: switch this computer between "in charge" and "monitor only"
+async function setRole(role) {
+  try {
+    await api("PUT", "/api/settings", { app: { role } });
+    toast(role === "monitor" ? "This computer is now Monitor only" : "This computer is now in charge");
+  } catch (err) { toast(err.message, true); }
+  refresh();
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("button[data-role]");
+  if (b) setRole(b.dataset.role);
+});
+$$("input[name=role]").forEach(r => r.addEventListener("change", () => setRole(r.value)));
+
+// Toolbar: group filter and buttons for every visible TV
+$("#group-chips").addEventListener("click", e => {
+  const b = e.target.closest("[data-group]");
+  if (!b) return;
+  groupFilter = b.dataset.group;
+  prefs.set("rtm.group", groupFilter);
+  render();
+});
+$("#bulk").addEventListener("click", async e => {
+  const b = e.target.closest("[data-bulk]");
+  if (!b) return;
+  const devices = visibleDevices();
+  const label = b.textContent.trim();
+  if (b.dataset.bulk === "power_off" && !confirm(`Turn off ${devices.length} TV${devices.length === 1 ? "" : "s"}?`)) return;
+  $$("#bulk button").forEach(x => x.disabled = true);
+  try {
+    const r = await api("POST", "/api/bulk", { command: b.dataset.bulk, device_ids: devices.map(d => d.id) });
+    if (r.failed.length) toast(`${label}: ${r.ok} done, failed on ${r.failed.map(f => f.name).join(", ")}`, true);
+    else toast(`${label}: done on ${r.ok} TV${r.ok === 1 ? "" : "s"}`);
+  } catch (err) { toast(err.message, true); }
+  $$("#bulk button").forEach(x => x.disabled = false);
+  refresh();
+});
+
+// Pop-up windows
+$$("dialog [data-close]").forEach(b => b.addEventListener("click", () => b.closest("dialog").close()));
+
+/** A small text box pop-up (Electron has no window.prompt). Resolves to the text, or null if cancelled. */
+function askText({ title, label, value = "", hint = "", options = [], type = "text" }) {
+  const dlg = $("#ask-dialog"), input = $("#ask-input");
+  $("#ask-title").textContent = title;
+  $("#ask-label").textContent = label;
+  $("#ask-hint").textContent = hint;
+  $("#ask-options").innerHTML = options.map(o => `<option value="${esc(o)}">`).join("");
+  input.type = type;
+  input.value = value;
+  dlg.returnValue = "";
+  dlg.showModal();
+  input.select();
+  return new Promise(resolve => {
+    dlg.addEventListener("close", () => resolve(dlg.returnValue === "ok" ? input.value.trim() : null), { once: true });
+  });
+}
+$("#ask-cancel").addEventListener("click", () => $("#ask-dialog").close());
+$$("dialog").forEach(d => d.addEventListener("click", e => { if (e.target === d) d.close(); }));  // click outside
+
+let remoteDevice = null;
+function openRemote(d) {
+  remoteDevice = d;
+  $("#remote-title").textContent = `Remote · ${d.name}`;
+  $("#remote-status").textContent = "Your keyboard works too: arrows, Enter, Backspace.";
+  $("#remote-dialog").showModal();
+}
+async function sendKey(key) {
+  if (!remoteDevice) return;
+  try {
+    await api("POST", `/api/devices/${encodeURIComponent(remoteDevice.id)}/command`, { command: "key", key });
+    $("#remote-status").textContent = `Sent ${key}`;
+  } catch (err) { $("#remote-status").textContent = err.message; }
+}
+$("#remote-dialog").addEventListener("click", e => {
+  const b = e.target.closest("[data-key]");
+  if (b) sendKey(b.dataset.key);
+});
+const KEYBOARD = { ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", Enter: "Select", Backspace: "Back" };
+$("#remote-dialog").addEventListener("keydown", e => {
+  if (!KEYBOARD[e.key] || e.repeat) return;
+  e.preventDefault();
+  sendKey(KEYBOARD[e.key]);
+});
+
+let jfPick = null, jfTimer = null, jfSeq = 0;
+function openJellyfinPicker(title, onPick) {
+  jfPick = onPick;
+  $("#jf-title").textContent = title;
+  $("#jf-search").value = "";
+  $("#jf-results").innerHTML = `<p class="muted small">Type at least 2 letters.</p>`;
+  $("#jf-dialog").showModal();
+  $("#jf-search").focus();
+}
+$("#jf-search").addEventListener("input", () => {
+  clearTimeout(jfTimer);
+  const q = $("#jf-search").value.trim();
+  if (q.length < 2) { $("#jf-results").innerHTML = `<p class="muted small">Type at least 2 letters.</p>`; return; }
+  jfTimer = setTimeout(async () => {
+    const seq = ++jfSeq;
+    $("#jf-results").innerHTML = `<p class="muted small">Searching…</p>`;
+    try {
+      const { items } = await api("POST", "/api/jellyfin/search", { q });
+      if (seq !== jfSeq) return;  // a newer search is on its way
+      $("#jf-results").innerHTML = items.length
+        ? items.map((it, i) => `<button type="button" data-i="${i}"><b>${esc(it.name)}</b> <span class="muted small">${esc(it.type)}${it.year ? ` · ${it.year}` : ""}</span></button>`).join("")
+        : `<p class="muted small">Nothing found for “${esc(q)}”.</p>`;
+      $("#jf-results").items = items;
+    } catch (err) { if (seq === jfSeq) $("#jf-results").innerHTML = `<p class="err-text">${esc(err.message)}</p>`; }
+  }, 300);
+});
+$("#jf-results").addEventListener("click", e => {
+  const b = e.target.closest("button[data-i]");
+  if (!b) return;
+  const it = $("#jf-results").items[Number(b.dataset.i)];
+  $("#jf-dialog").close();
+  jfPick?.({ id: it.id, name: it.name });
+});
+
+// Settings: Jellyfin
+["#jf-url", "#jf-key"].forEach(sel => $(sel).addEventListener("input", () => { jfDirty = true; }));
+function jfStatus(html) {
+  jfStatusLocked = true;
+  $("#jf-status").innerHTML = html;
+  setTimeout(() => { jfStatusLocked = false; }, 8000);
+}
+async function saveJellyfin(extra = {}) {
+  await api("PUT", "/api/settings", { jellyfin: { url: $("#jf-url").value.trim(), api_key: $("#jf-key").value.trim(), ...extra } });
+  jfDirty = false;
+}
+$("#jf-save").addEventListener("click", async () => {
+  try { await saveJellyfin(); toast("Jellyfin settings saved"); }
+  catch (err) { toast(err.message, true); }
+  refresh();
+});
+$("#jf-test").addEventListener("click", async () => {
+  jfStatus(`<span class="muted">Testing…</span>`);
+  try {
+    if (jfDirty) await saveJellyfin();
+    const r = await api("POST", "/api/jellyfin/test");
+    jfStatus(`<span style="color:var(--on)">✓ Connected to ${esc(r.name)} ${esc(r.version)}.</span> ` +
+      (r.tvs.length ? `Jellyfin is open on: ${r.tvs.map(esc).join(", ")}.` : `<span class="muted">No TV has Jellyfin open right now.</span>`));
+  } catch (err) { jfStatus(`<span class="err-text">${esc(err.message)}</span>`); }
+  refresh();
+});
+$("#jf-forget").addEventListener("click", async () => {
+  if (!confirm("Remove the saved Jellyfin API key from this computer?")) return;
+  try { await api("PUT", "/api/settings", { jellyfin: { api_key: null } }); toast("API key removed"); }
+  catch (err) { toast(err.message, true); }
+  refresh();
+});
+
+// Settings: alerts and updates (save immediately)
+$$("[data-alert]").forEach(c => c.addEventListener("change", async () => {
+  try { await api("PUT", "/api/settings", { alerts: { [c.dataset.alert]: c.checked } }); }
+  catch (err) { toast(err.message, true); }
+  refresh();
+}));
+$("#app-updates").addEventListener("change", e => saveApp({ check_updates: e.target.checked }));
 
 // This computer
 async function saveApp(patch, okMsg) {

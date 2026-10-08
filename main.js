@@ -1,16 +1,21 @@
 // Roku TV Manager (Electron) main process: window, tray icon, settings file,
 // the background engine, and optional phone access. All TV work runs here, so
 // it keeps going while the window is closed.
-import { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, nativeTheme, powerSaveBlocker, shell } from 'electron';
+import { app, BrowserWindow, Menu, Notification, Tray, ipcMain, nativeImage, nativeTheme, net, powerSaveBlocker, shell } from 'electron';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createApi } from './src/core/api.js';
 import { localAddresses } from './src/core/discovery.js';
 import { Engine } from './src/core/engine.js';
+import { Presence } from './src/core/presence.js';
 import { createRemoteServer } from './src/core/remote.js';
 import { Store } from './src/core/store.js';
+import { checkForUpdate } from './src/core/updates.js';
+
+const UPDATE_CHECK_HOURS = 12;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const isMac = process.platform === 'darwin';
@@ -24,6 +29,12 @@ let quitting = false;
 let sleepBlocker = null;
 let remote = { server: null, port: null, error: null };
 let trayHintShown = false;
+let presence = null;
+let update = null; // { version, url } when a newer release exists
+let updateCheckedAt = null; // when the last update check succeeded (seconds)
+let lastRole = null;
+let lastCheckUpdates = null;
+let warnedPeers = new Set(); // other in-charge copies we've already logged
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -45,8 +56,22 @@ function start() {
   engine.addLog('info', `Roku TV Manager ${app.getVersion()} started`);
   engine.start();
 
+  engine.on('alert', notify);
+
+  presence = new Presence({
+    instanceId: store.instanceId,
+    name: os.hostname(),
+    version: app.getVersion(),
+    getRole: () => store.settings().app.role,
+  });
+  presence.on('change', onPeersChanged);
+  presence.start();
+
   store.on('change', applyAppSettings);
   applyAppSettings();
+
+  setTimeout(checkUpdates, 10_000);
+  setInterval(checkUpdates, UPDATE_CHECK_HOURS * 3600_000);
 
   ipcMain.handle('api', (event, method, apiPath, body) => {
     if (!event.senderFrame?.url.startsWith('file://')) return { status: 403, body: { error: 'Forbidden' } };
@@ -80,7 +105,55 @@ function appInfo() {
     remote_running: !!remote.server,
     remote_error: remote.error,
     remote_urls: remote.server ? localAddresses().map((a) => `http://${a.address}:${port}`) : [],
+    computer_name: os.hostname(),
+    peers: presence ? presence.peers() : [],
+    presence_error: presence?.error ?? null,
+    conflict: conflictingPeers().map((p) => p.name),
+    update,
+    update_checked_at: updateCheckedAt,
+    notifications_supported: Notification.isSupported(),
   };
+}
+
+// ---------------------------------------------------------------- other copies, alerts, updates
+
+/** Other computers that are also "in charge" while this one is. */
+function conflictingPeers() {
+  if (!presence || store.settings().app.role === 'monitor') return [];
+  return presence.peers().filter((p) => p.role === 'control');
+}
+
+function onPeersChanged() {
+  for (const p of conflictingPeers()) {
+    if (warnedPeers.has(p.id)) continue;
+    warnedPeers.add(p.id);
+    engine.addLog('warn', `Another computer (${p.name}) is also in charge of the TVs. Set one of them to \u201cMonitor only\u201d in Settings \u2192 This computer.`);
+  }
+  updateTray();
+}
+
+function notify({ message }) {
+  if (!Notification.isSupported()) return;
+  const n = new Notification({ title: 'Roku TV Manager', body: message });
+  n.on('click', showWindow);
+  n.show();
+}
+
+async function checkUpdates() {
+  if (!store.settings().app.check_updates) return;
+  try {
+    const found = await checkForUpdate(app.getVersion(), async (url) => {
+      const r = await net.fetch(url, { headers: { Accept: 'application/vnd.github+json' } });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    });
+    if (found && found.version !== update?.version) engine.addLog('info', `Version ${found.version} is available. Download it from Settings \u2192 This computer.`);
+    update = found;
+    updateCheckedAt = Date.now() / 1000;
+    updateTray();
+  } catch {
+    // Offline or GitHub unreachable: try again next time.
+  }
 }
 
 function appendLog(file, e) {
@@ -95,6 +168,18 @@ function appendLog(file, e) {
 
 function applyAppSettings() {
   const s = store.settings();
+
+  // Tell other copies right away when this one switches between "in charge" and "monitor only".
+  if (lastRole !== null && lastRole !== s.app.role) {
+    presence?.announce();
+    warnedPeers = new Set();
+    engine.addLog('info', s.app.role === 'monitor' ? 'This computer is now Monitor only: no pings or schedules from here.' : 'This computer is now in charge of pings and schedules.');
+  }
+  lastRole = s.app.role;
+  // Check right away when update checks are switched back on.
+  if (s.app.check_updates && lastCheckUpdates === false) setTimeout(checkUpdates, 1000);
+  if (!s.app.check_updates) update = null;
+  lastCheckUpdates = s.app.check_updates;
 
   // Pings stop if this computer goes to sleep, so keep it awake while keep-awake is on.
   const wantAwake = s.app.prevent_sleep && s.keepawake.enabled;
@@ -197,7 +282,10 @@ function quit() {
   app.quit();
 }
 
-app.on('before-quit', () => { quitting = true; });
+app.on('before-quit', () => {
+  quitting = true;
+  presence?.stop();
+});
 app.on('activate', showWindow);
 app.on('window-all-closed', () => { /* stay running in the tray */ });
 
@@ -232,10 +320,14 @@ function updateTray() {
     ? `${total} TV${total === 1 ? '' : 's'}: ${counts.on} on, ${counts.standby} off${counts.offline ? `, ${counts.offline} not responding` : ''}`
     : 'No TVs added yet';
   tray.setToolTip(`Roku TV Manager\n${summary}`);
+  const conflict = conflictingPeers();
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Roku TV Manager', click: showWindow },
+    ...(update ? [{ label: `Download version ${update.version}\u2026`, click: () => shell.openExternal(update.url) }] : []),
     { type: 'separator' },
     { label: summary, enabled: false },
+    ...(s.app.role === 'monitor' ? [{ label: 'Monitor only (another computer is in charge)', enabled: false }] : []),
+    ...(conflict.length ? [{ label: `\u26a0 ${conflict.join(', ')} is also in charge`, click: showWindow }] : []),
     {
       label: 'Keep-awake pings',
       type: 'checkbox',

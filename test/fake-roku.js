@@ -11,6 +11,7 @@ export class FakeRoku {
     this.forbidden = false;
     this.presses = [];
     this.launches = [];
+    this.onLaunch = null; // optional callback(appId), e.g. to make a fake Jellyfin session appear
     this.server = http.createServer((req, res) => this.handle(req, res));
     this.ready = new Promise((resolve) => this.server.listen(port, host, () => {
       this.port = this.server.address().port;
@@ -53,6 +54,7 @@ export class FakeRoku {
       else if (key === 'Home') this.app = [null, 'Roku', null];
     } else if (kind === 'launch') {
       this.launches.push(key);
+      this.onLaunch?.(key);
       this.app = [key, key === '592369' ? 'Jellyfin' : key, 'appl'];
     } else {
       return reply(404);

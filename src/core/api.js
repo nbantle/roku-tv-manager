@@ -3,12 +3,23 @@
 
 import * as discovery from './discovery.js';
 import { EcpClient, EcpError } from './ecp.js';
-import { INPUTS, KEEPALIVE_KEYS, SCHEDULE_ACTIONS, SCHEDULE_THEN, ValidationError, describeSchedule } from './store.js';
+import { JellyfinError } from './jellyfin.js';
+import {
+  CARD_COLORS, INPUTS, KEEPALIVE_KEYS, REMOTE_KEYS, SCHEDULE_ACTIONS, SCHEDULE_THEN, ValidationError, describeSchedule,
+} from './store.js';
 
 const DEVICE_COMMANDS = new Set([
-  'ping', 'refresh', 'power_on', 'power_on_launch', 'power_off', 'launch_target', 'home',
+  'ping', 'refresh', 'power_on', 'power_on_launch', 'power_off', 'launch_target', 'home', 'key', 'jellyfin_play',
   ...Object.keys(INPUTS).map((k) => `input_${k}`),
 ]);
+// Commands the "all TVs" buttons can send.
+const BULK_COMMANDS = new Set(['ping', 'power_on', 'power_off', 'launch_target', 'home', ...Object.keys(INPUTS).map((k) => `input_${k}`)]);
+
+/** Settings as shown to the page: the Jellyfin API key never leaves this computer. */
+function publicSettings(settings) {
+  const { api_key: key, ...jellyfin } = settings.jellyfin;
+  return { ...settings, jellyfin: { ...jellyfin, has_api_key: !!key } };
+}
 
 class ApiError extends Error {
   constructor(status, message) {
@@ -39,7 +50,10 @@ export function createApi(store, engine, { discover = discovery.discover, appInf
     const settings = store.settings();
     return {
       server_time: engine.clock(),
-      settings,
+      settings: publicSettings(settings),
+      in_charge: engine.inCharge(settings),
+      groups: store.groups(),
+      jellyfin: { configured: !!engine.jellyfinClient(settings), error: engine.jf.error },
       devices: store.devices().map((d) => deviceView(d, settings)),
       schedules: store.schedules().map((s) => ({ ...s, summary: describeSchedule(s) })),
       log: engine.recentLog(),
@@ -49,11 +63,20 @@ export function createApi(store, engine, { discover = discovery.discover, appInf
         schedule_actions: SCHEDULE_ACTIONS,
         schedule_then: SCHEDULE_THEN,
         inputs: Object.fromEntries(Object.entries(INPUTS).map(([k, v]) => [k, v.label])),
+        remote_keys: REMOTE_KEYS,
+        card_colors: CARD_COLORS,
       },
     };
   });
 
-  route('PUT', '/api/settings', (body) => store.updateSettings(body));
+  route('PUT', '/api/settings', (body) => {
+    // An empty key field means "leave the saved key alone" (the page never sees it).
+    if (body.jellyfin && body.jellyfin.api_key === '') {
+      const { api_key: _, ...rest } = body.jellyfin;
+      body = { ...body, jellyfin: rest };
+    }
+    return publicSettings(store.updateSettings(body));
+  });
 
   route('POST', '/api/discover', async (body) => {
     const method = body.method ?? 'ssdp';
@@ -93,7 +116,7 @@ export function createApi(store, engine, { discover = discovery.discover, appInf
 
   route('PATCH', '/api/devices/([^/]+)', (body, m) => {
     deviceOr404(m[1]);
-    const allowed = Object.fromEntries(['name', 'keepawake_enabled', 'interval_minutes'].filter((k) => k in body).map((k) => [k, body[k]]));
+    const allowed = Object.fromEntries(['name', 'keepawake_enabled', 'interval_minutes', 'color', 'group'].filter((k) => k in body).map((k) => [k, body[k]]));
     return store.updateDevice(m[1], allowed);
   });
 
@@ -107,10 +130,54 @@ export function createApi(store, engine, { discover = discovery.discover, appInf
   route('POST', '/api/devices/([^/]+)/command', async (body, m) => {
     const device = deviceOr404(m[1]);
     if (!DEVICE_COMMANDS.has(body.command)) throw new ApiError(400, 'Unknown command');
+    if (body.command === 'key' && !REMOTE_KEYS.includes(body.key)) throw new ApiError(400, 'Unknown remote button');
+    if (body.command === 'jellyfin_play' && !(body.item && typeof body.item.id === 'string' && body.item.id)) {
+      throw new ApiError(400, 'Choose something to play');
+    }
+    const opts = { key: body.key, item: body.item ? { id: body.item.id, name: String(body.item.name ?? '') } : undefined };
     try {
-      return { message: await engine.runCommand(device, body.command) };
+      return { message: await engine.runCommand(device, body.command, 'Manual', opts) };
     } catch (e) {
-      if (e instanceof EcpError) throw new ApiError(502, e.message);
+      if (e instanceof EcpError || e instanceof JellyfinError) throw new ApiError(502, e.message);
+      throw e;
+    }
+  });
+
+  // The "all TVs" / group buttons: run one command on several TVs at once.
+  route('POST', '/api/bulk', async (body) => {
+    if (!BULK_COMMANDS.has(body.command)) throw new ApiError(400, 'Unknown command');
+    if (!Array.isArray(body.device_ids) || !body.device_ids.length) throw new ApiError(400, 'No TVs chosen');
+    const devices = body.device_ids.map((id) => store.device(id)).filter(Boolean);
+    const results = await Promise.all(devices.map((d) => engine.runCommand(d, body.command, 'All TVs')
+      .then(() => null)
+      .catch((e) => ({ name: d.name, error: e.message }))));
+    const failed = results.filter(Boolean);
+    return { ok: devices.length - failed.length, failed };
+  });
+
+  route('POST', '/api/jellyfin/test', async () => {
+    const jf = engine.jellyfinClient();
+    if (!jf) throw new ApiError(400, 'Enter the Jellyfin address and API key first.');
+    try {
+      const info = await jf.info();
+      const sessions = (await jf.sessions()) || [];
+      const tvs = store.devices().filter((d) => engine.jellyfinSession(d, sessions)).map((d) => d.name);
+      return { ...info, tvs };
+    } catch (e) {
+      if (e instanceof JellyfinError) throw new ApiError(502, e.message);
+      throw e;
+    }
+  });
+
+  route('POST', '/api/jellyfin/search', async (body) => {
+    const jf = engine.jellyfinClient();
+    if (!jf) throw new ApiError(400, 'Set up Jellyfin in Settings first.');
+    const q = String(body.q ?? '').trim();
+    if (!q) return { items: [] };
+    try {
+      return { items: await jf.search(q.slice(0, 100)) };
+    } catch (e) {
+      if (e instanceof JellyfinError) throw new ApiError(502, e.message);
       throw e;
     }
   });

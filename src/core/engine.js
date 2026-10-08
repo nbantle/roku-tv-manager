@@ -2,13 +2,17 @@
 
 import { EventEmitter } from 'node:events';
 import { EcpClient, EcpError } from './ecp.js';
-import { INPUTS, describeSchedule } from './store.js';
+import { JellyfinClient, JellyfinError, nowPlaying, sessionForHost } from './jellyfin.js';
+import { INPUTS, JELLYFIN_APP_ID, REMOTE_KEYS, describeSchedule, localDate } from './store.js';
 
 export const STARTUP_GRACE_SECONDS = 15;
 const KEY_GAP_MS = 400;
 const POWER_ON_WAIT_TRIES = 20; // check once a second for up to 20 s
 const SETTLE_AFTER_POWER_ON_MS = 3000; // a TV that just woke up needs a moment before it takes an app/input change
 const PLAYBACK = { play: 'Playing', pause: 'Paused', buffer: 'Buffering' };
+const OFFLINE_ALERT_AFTER = 2; // missed status checks in a row before "not responding" alerts
+const OWN_CHANGE_SECONDS = 90; // changes this soon after the app sent a command are the app's own doing
+const JELLYFIN_SESSION_TRIES = 30; // wait up to ~60 s for the TV's Jellyfin app to connect
 
 /** Turn raw ECP query results into a status the UI can show. */
 export function describeStatus(info, app, player, targetAppId) {
@@ -69,6 +73,7 @@ export function offlineStatus(error) {
 export class Engine extends EventEmitter {
   constructor(store, {
     clientFactory = (host) => new EcpClient(host),
+    jellyfinFactory = (url, key) => new JellyfinClient(url, key),
     clock = () => Date.now() / 1000,
     localNow = () => new Date(),
     sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -76,6 +81,7 @@ export class Engine extends EventEmitter {
     super();
     this.store = store;
     this.clientFactory = clientFactory;
+    this.jellyfinFactory = jellyfinFactory;
     this.clock = clock;
     this.localNow = localNow;
     this.sleep = sleep;
@@ -85,6 +91,10 @@ export class Engine extends EventEmitter {
     this.pings = new Map(); // device id -> { last_at, last_result }
     this.fired = new Map(); // schedule id -> "YYYY-MM-DD HH:MM" it last fired
     this.inflight = new Map(); // task key -> promise
+    this.failures = new Map(); // device id -> missed status checks in a row
+    this.lastCommandAt = new Map(); // device id -> when the app last changed this TV
+    this.offlineAlerted = new Set(); // device ids we've sent a "not responding" alert for
+    this.jf = { client: null, key: null, sessions: [], error: null };
     this.nextPoll = 0;
     this.timer = null;
   }
@@ -146,8 +156,13 @@ export class Engine extends EventEmitter {
     return (device.interval_minutes || settings.keepawake.interval_minutes) * 60;
   }
 
+  /** False when this copy is set to "Monitor only" (another computer is in charge). */
+  inCharge(settings = this.store.settings()) {
+    return settings.app.role !== 'monitor';
+  }
+
   nextPingAt(device, settings) {
-    if (!settings.keepawake.enabled || !device.keepawake_enabled) return null;
+    if (!this.inCharge(settings) || !settings.keepawake.enabled || !device.keepawake_enabled) return null;
     const last = this.pings.get(device.id)?.last_at ?? null;
     if (last === null) return this.startedAt + STARTUP_GRACE_SECONDS;
     return last + this.intervalSeconds(device, settings);
@@ -160,8 +175,10 @@ export class Engine extends EventEmitter {
 
     if (now >= this.nextPoll) {
       this.nextPoll = now + settings.status_poll_seconds;
+      this.submit('jellyfin:sessions', () => this.refreshJellyfin());
       for (const d of devices) this.submit(`poll:${d.id}`, () => this.pollDevice(d));
     }
+    if (!this.inCharge(settings)) return; // monitor only: no pings, no schedules
 
     for (const d of devices) {
       const due = this.nextPingAt(d, settings);
@@ -171,7 +188,7 @@ export class Engine extends EventEmitter {
       }
     }
 
-    this.checkSchedules(devices);
+    this.checkSchedules();
   }
 
   markPinged(id, at, result) {
@@ -189,6 +206,67 @@ export class Engine extends EventEmitter {
     return this.status.get(id) ?? null;
   }
 
+  // ---------- Jellyfin ----------
+
+  /** A client for the Jellyfin server in Settings, or null if it isn't set up. */
+  jellyfinClient(settings = this.store.settings()) {
+    const { url, api_key: key } = settings.jellyfin;
+    if (!url || !key) return null;
+    if (this.jf.key !== `${url}|${key}`) Object.assign(this.jf, { client: this.jellyfinFactory(url, key), key: `${url}|${key}`, error: null });
+    return this.jf.client;
+  }
+
+  async refreshJellyfin() {
+    const jf = this.jellyfinClient();
+    if (!jf) return Object.assign(this.jf, { sessions: [], error: null });
+    try {
+      const sessions = await jf.sessions();
+      if (this.jf.error) this.addLog('info', 'Jellyfin: connected again');
+      Object.assign(this.jf, { sessions: sessions || [], error: null });
+    } catch (e) {
+      if (!(e instanceof JellyfinError)) throw e;
+      if (this.jf.error !== e.message) this.addLog('error', `Jellyfin: ${e.message}`);
+      Object.assign(this.jf, { sessions: [], error: e.message });
+    }
+  }
+
+  /** The TV's Jellyfin session: matched by IP address, or by name if Jellyfin sits behind a proxy. */
+  jellyfinSession(device, sessions = this.jf.sessions) {
+    return sessionForHost(sessions, device.host)
+      ?? sessions.find((x) => String(x.DeviceName || '').toLowerCase() === device.name.toLowerCase() && /roku/i.test(String(x.Client || ''))) ?? null;
+  }
+
+  // ---------- alerts ----------
+
+  alert(kind, message, device) {
+    this.addLog('warn', message, device);
+    this.emit('alert', { kind, message, device: device.name });
+  }
+
+  ownChange(device) {
+    return this.clock() - (this.lastCommandAt.get(device.id) ?? -Infinity) < OWN_CHANGE_SECONDS;
+  }
+
+  checkAlerts(device, previous, status) {
+    const alerts = this.store.settings().alerts;
+    const fails = status.reachable ? 0 : (this.failures.get(device.id) ?? 0) + 1;
+    this.failures.set(device.id, fails);
+
+    if (fails >= OFFLINE_ALERT_AFTER && !this.offlineAlerted.has(device.id)) {
+      this.offlineAlerted.add(device.id);
+      if (alerts.offline) this.alert('offline', `${device.name} isn\u2019t responding`, device);
+    } else if (status.reachable && this.offlineAlerted.delete(device.id) && alerts.offline) {
+      this.alert('online', `${device.name} is responding again`, device);
+    }
+    if (!previous || this.ownChange(device)) return;
+    if (alerts.turned_off && previous.power === 'on' && status.power === 'standby') {
+      this.alert('turned_off', `${device.name} was turned off`, device);
+    }
+    if (alerts.left_target && previous.on_target && status.power === 'on' && !status.on_target) {
+      this.alert('left_target', `${device.name} switched from ${previous.activity} to ${status.activity}`, device);
+    }
+  }
+
   // ---------- status ----------
 
   async pollDevice(device) {
@@ -204,6 +282,9 @@ export class Engine extends EventEmitter {
         if (app?.id && !app.id.startsWith('tvinput.')) player = await client.mediaPlayer().catch(() => null);
       }
       status = describeStatus(info, app, player, settings.target_app.id);
+      if (status.power === 'on' && status.app_id === JELLYFIN_APP_ID) {
+        status.jellyfin = nowPlaying(this.jellyfinSession(device));
+      }
     } catch (e) {
       if (!(e instanceof EcpError)) throw e;
       status = offlineStatus(e);
@@ -212,6 +293,7 @@ export class Engine extends EventEmitter {
 
     const previous = this.status.get(device.id);
     this.status.set(device.id, status);
+    this.checkAlerts(device, previous, status);
     if (!previous) {
       this.addLog('info', `Status: ${status.activity}`, device);
     } else if (previous.power !== status.power || previous.activity !== status.activity) {
@@ -241,6 +323,7 @@ export class Engine extends EventEmitter {
         } else if (device.held_off) {
           result = 'Left off (turned off by schedule or by hand)';
         } else {
+          this.lastCommandAt.set(device.id, this.clock());
           await client.keypress('PowerOn');
           result = 'TV was off — turned it on';
           if (ka.when_off === 'power_on_launch') {
@@ -250,6 +333,7 @@ export class Engine extends EventEmitter {
           }
         }
       } else if (!status.on_target && ka.when_other_app === 'launch_target' && !manual) {
+        this.lastCommandAt.set(device.id, this.clock());
         await client.launch(target.id);
         result = `Switched from ${status.activity} to ${target.name}`;
       } else if (!status.on_target && ka.only_when === 'target_app' && !manual) {
@@ -297,6 +381,18 @@ export class Engine extends EventEmitter {
 
     if (command === 'ping') return this.keepAwake(device, true);
     if (command === 'refresh') return (await this.pollDevice(device)).activity;
+    this.lastCommandAt.set(device.id, this.clock());
+
+    if (command === 'key') {
+      // Mini remote: no log line per button press.
+      if (!REMOTE_KEYS.includes(opts.key)) throw new Error('Unknown remote button');
+      await client.keypress(opts.key);
+      this.submit(`poll:${device.id}`, async () => {
+        await this.sleep(1000);
+        return this.pollDevice(device);
+      });
+      return opts.key;
+    }
 
     const openApp = async (app) => {
       await client.launch(app.id);
@@ -325,6 +421,8 @@ export class Engine extends EventEmitter {
       } else if (command === 'home') {
         await client.keypress('Home');
         message = 'Went to Home screen';
+      } else if (command === 'jellyfin_play') {
+        message = await this.playFromJellyfin(device, client, opts.item);
       } else if (command.startsWith('input_') && INPUTS[command.slice(6)]) {
         const input = INPUTS[command.slice(6)];
         await client.keypress(input.key);
@@ -333,7 +431,7 @@ export class Engine extends EventEmitter {
         throw new Error(`Unknown command: ${command}`);
       }
     } catch (e) {
-      if (e instanceof EcpError) this.addLog('error', `${source}: ${command} failed: ${e.message}`, device);
+      if (e instanceof EcpError || e instanceof JellyfinError) this.addLog('error', `${source}: ${command} failed: ${e.message}`, device);
       throw e;
     }
 
@@ -350,45 +448,67 @@ export class Engine extends EventEmitter {
     return message;
   }
 
+  /** Open Jellyfin on the TV if needed, wait for it to connect, then play `item`. */
+  async playFromJellyfin(device, client, item) {
+    if (!item?.id) throw new Error('Nothing chosen to play');
+    const jf = this.jellyfinClient();
+    if (!jf) throw new JellyfinError('Set up the Jellyfin server in Settings first.');
+    let session = this.jellyfinSession(device, await jf.sessions());
+    if (!session) {
+      await client.launch(JELLYFIN_APP_ID);
+      for (let i = 0; i < JELLYFIN_SESSION_TRIES && !session; i++) {
+        await this.sleep(2000);
+        session = this.jellyfinSession(device, await jf.sessions());
+      }
+      if (!session) throw new JellyfinError(`Jellyfin opened on ${device.name}, but it never connected to the server. Is it signed in?`);
+    }
+    await jf.play(session.Id, item.id);
+    return `Playing \u201c${item.name || item.id}\u201d from Jellyfin`;
+  }
+
   /** Carry out one schedule on one TV. */
   async runScheduleOn(device, sched, source) {
     const client = this.clientFactory(device.host);
     const followUp = sched.action === 'power_on' && sched.then && sched.then !== 'nothing';
     const wasOn = followUp && await this.isOn(client);
-    const first = { power_on: 'power_on', power_off: 'power_off', open_app: 'open_app', input: `input_${sched.input}`, home: 'home' }[sched.action];
+    const commandFor = (kind) => ({
+      power_on: 'power_on', power_off: 'power_off', open_app: 'open_app', app: 'open_app',
+      input: `input_${sched.input}`, home: 'home', jellyfin: 'jellyfin_play',
+    }[kind]);
+    const opts = { app: sched.app, item: sched.item };
 
-    await this.runCommand(device, first, source, { app: sched.app });
-
+    await this.runCommand(device, commandFor(sched.action), source, opts);
     if (followUp) {
       await this.waitUntilOn(client, !wasOn);
-      const next = { app: 'open_app', input: `input_${sched.input}`, home: 'home' }[sched.then];
-      await this.runCommand(device, next, source, { app: sched.app });
+      await this.runCommand(device, commandFor(sched.then), source, opts);
     }
   }
 
   // ---------- scheduler ----------
 
-  checkSchedules(devices) {
+  checkSchedules() {
     const now = this.localNow();
     const pad = (n) => String(n).padStart(2, '0');
     const hhmm = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-    const minute = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${hhmm}`;
+    const today = localDate(now);
     const weekday = (now.getDay() + 6) % 7; // 0 = Monday
     for (const sched of this.store.schedules()) {
-      if (!sched.enabled || sched.time !== hhmm || !sched.days.includes(weekday)) continue;
-      if (this.fired.get(sched.id) === minute) continue;
-      this.fired.set(sched.id, minute);
-      this.runSchedule(sched, devices);
+      if (!sched.enabled || sched.time !== hhmm) continue;
+      const due = sched.repeat === 'once' ? sched.date === today : sched.days.includes(weekday);
+      if (!due || this.fired.get(sched.id) === `${today} ${hhmm}`) continue;
+      this.fired.set(sched.id, `${today} ${hhmm}`);
+      this.runSchedule(sched);
+      this.store.finishOnce(sched.id);
     }
   }
 
-  runSchedule(sched, devices = this.store.devices()) {
-    const targets = devices.filter((d) => sched.devices === 'all' || sched.devices.includes(d.id));
-    const source = `Schedule “${sched.name}”`;
+  runSchedule(sched) {
+    const targets = this.store.scheduleTargets(sched);
+    const source = `Schedule \u201c${sched.name}\u201d`;
     this.addLog('info', `${source} running: ${describeSchedule(sched)} on ${targets.length} TV(s)`);
     for (const d of targets) {
       this.submit(`schedule:${sched.id}:${d.id}`, () => this.runScheduleOn(d, sched, source).catch((e) => {
-        if (!(e instanceof EcpError)) throw e; // ECP errors are already logged
+        if (!(e instanceof EcpError) && !(e instanceof JellyfinError)) throw e; // those are already logged
       }));
     }
     return targets.length;

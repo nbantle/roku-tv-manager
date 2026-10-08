@@ -20,11 +20,24 @@ export const DEFAULT_SETTINGS = {
     when_other_app: 'leave', // "leave" | "launch_target"
   },
   app: {
+    role: 'control', // "control": this copy pings and runs schedules; "monitor": watch and control by hand only
     prevent_sleep: true, // keep this computer from sleeping so pings keep going
     remote_access: false, // let phones/other computers open the dashboard in a browser
     remote_port: 8765,
+    check_updates: true,
+  },
+  alerts: {
+    offline: true, // a TV stops responding
+    turned_off: false, // a TV is turned off (not by this app)
+    left_target: false, // a TV switches away from the target app (not by this app)
+  },
+  jellyfin: {
+    url: '', // e.g. http://192.168.1.10:8096
+    api_key: '',
   },
 };
+
+export const CARD_COLORS = ['gray', 'black', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'];
 
 // Remote buttons allowed in the keep-awake sequence. Power and Home are left
 // out on purpose: a keep-awake press must never change what the TV is doing.
@@ -32,6 +45,12 @@ export const KEEPALIVE_KEYS = [
   'Back', 'Backspace', 'ChannelDown', 'ChannelUp', 'Down', 'Enter', 'Fwd', 'Info',
   'InstantReplay', 'Left', 'Play', 'Rev', 'Right', 'Search', 'Select', 'Up',
   'VolumeDown', 'VolumeMute', 'VolumeUp',
+];
+
+// Buttons on the mini remote.
+export const REMOTE_KEYS = [
+  'Up', 'Down', 'Left', 'Right', 'Select', 'Back', 'Home', 'Info', 'InstantReplay',
+  'Rev', 'Play', 'Fwd', 'VolumeDown', 'VolumeMute', 'VolumeUp',
 ];
 
 // TV inputs the app can switch to (ECP key names).
@@ -49,6 +68,7 @@ export const SCHEDULE_ACTIONS = {
   power_off: 'Turn off',
   open_app: 'Open an app',
   input: 'Switch input',
+  jellyfin: 'Play from Jellyfin',
   home: 'Go to Home screen',
 };
 
@@ -57,6 +77,7 @@ export const SCHEDULE_THEN = {
   nothing: 'Nothing (whatever was showing last)',
   app: 'Open an app',
   input: 'Switch to an input',
+  jellyfin: 'Play something from Jellyfin',
   home: 'Go to Home screen',
 };
 
@@ -66,6 +87,7 @@ export function describeSchedule(s) {
     app: `open ${s.app?.name || s.app?.id}`,
     input: `switch to ${INPUTS[s.input]?.label ?? s.input}`,
     home: 'go to the Home screen',
+    jellyfin: `play \u201c${s.item?.name}\u201d from Jellyfin`,
   }[kind]);
   switch (s.action) {
     case 'power_on': return s.then && s.then !== 'nothing' ? `Turn on, then ${step(s.then)}` : 'Turn on';
@@ -73,6 +95,7 @@ export function describeSchedule(s) {
     case 'open_app': return `Open ${s.app?.name || s.app?.id}`;
     case 'input': return `Switch to ${INPUTS[s.input]?.label ?? s.input}`;
     case 'home': return 'Go to the Home screen';
+    case 'jellyfin': return `Play \u201c${s.item?.name}\u201d from Jellyfin`;
     default: return s.action;
   }
 }
@@ -85,6 +108,16 @@ export function migrateSchedule(s, targetApp) {
   if (/^input_hdmi[1-4]$/.test(s.action)) return { ...s, action: 'input', input: s.action.slice(6) };
   return s;
 }
+
+/** Fill in fields added after a schedule was saved. */
+function upgradeSchedule(s, targetApp) {
+  const m = migrateSchedule(s, targetApp);
+  return { repeat: 'weekly', date: null, groups: [], item: null, then: 'nothing', app: null, input: null, ...m };
+}
+
+const pad2 = (n) => String(n).padStart(2, '0');
+/** "YYYY-MM-DD" for a Date, in local time. */
+export const localDate = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
 export class ValidationError extends Error {}
 
@@ -152,6 +185,24 @@ export function validateSettings(current, patch) {
     if ('prevent_sleep' in ap) a.prevent_sleep = bool(ap.prevent_sleep, 'Keep computer awake');
     if ('remote_access' in ap) a.remote_access = bool(ap.remote_access, 'Phone access');
     if ('remote_port' in ap) a.remote_port = int(ap.remote_port, 1024, 65535, 'Phone access port');
+    if ('role' in ap) a.role = choice(ap.role, ['control', 'monitor'], 'Role');
+    if ('check_updates' in ap) a.check_updates = bool(ap.check_updates, 'Check for updates');
+  }
+  if ('alerts' in patch) {
+    const ap = obj(patch.alerts, 'alerts');
+    for (const k of ['offline', 'turned_off', 'left_target']) if (k in ap) s.alerts[k] = bool(ap[k], 'Alert setting');
+  }
+  if ('jellyfin' in patch) {
+    const jp = obj(patch.jellyfin, 'jellyfin');
+    if ('url' in jp) {
+      const url = str(jp.url, 'Jellyfin address', 200).replace(/\/+$/, '');
+      if (url && !/^https?:\/\/[^\s/]+(:\d+)?(\/[^\s]*)?$/i.test(url)) {
+        throw new ValidationError('Jellyfin address must look like http://192.168.1.10:8096');
+      }
+      s.jellyfin.url = url;
+    }
+    // null clears the key; a missing key leaves the saved one alone.
+    if ('api_key' in jp) s.jellyfin.api_key = jp.api_key === null ? '' : str(jp.api_key, 'Jellyfin API key', 200);
   }
   return s;
 }
@@ -160,28 +211,52 @@ export function validateSchedule(data, deviceIds) {
   obj(data, 'Schedule');
   const time = str(data.time ?? '', 'Time', 5);
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new ValidationError('Time must be HH:MM (24-hour)');
-  const days = data.days;
-  if (!Array.isArray(days) || !days.length || days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
-    throw new ValidationError('Pick at least one day');
+
+  const repeat = choice(data.repeat ?? 'weekly', ['weekly', 'once'], 'Repeat');
+  let days = [];
+  let date = null;
+  if (repeat === 'weekly') {
+    days = data.days;
+    if (!Array.isArray(days) || !days.length || days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+      throw new ValidationError('Pick at least one day');
+    }
+    days = [...new Set(days)].sort((a, b) => a - b); // 0 = Monday ... 6 = Sunday
+  } else {
+    date = str(data.date ?? '', 'Date', 10);
+    const d = new Date(`${date}T00:00:00`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(d.getTime()) || localDate(d) !== date) {
+      throw new ValidationError('Pick a date');
+    }
   }
+
   const devices = data.devices ?? 'all';
+  let groups = [];
   if (devices !== 'all') {
-    if (!Array.isArray(devices) || !devices.length) throw new ValidationError('Pick at least one TV, or all TVs');
+    if (!Array.isArray(devices)) throw new ValidationError('Pick at least one TV, or all TVs');
     const unknown = devices.find((d) => !deviceIds.has(d));
     if (unknown !== undefined) throw new ValidationError(`Unknown TV: ${unknown}`);
+    groups = data.groups ?? [];
+    if (!Array.isArray(groups)) throw new ValidationError('Groups must be a list');
+    groups = [...new Set(groups.map((g) => str(g, 'Group', 40)).filter(Boolean))];
+    if (!devices.length && !groups.length) throw new ValidationError('Pick at least one TV or group, or all TVs');
   }
+
   const action = choice(data.action, Object.keys(SCHEDULE_ACTIONS), 'Action');
   const then = action === 'power_on' ? choice(data.then ?? 'nothing', Object.keys(SCHEDULE_THEN), 'Then') : 'nothing';
   const sched = {
     name: '',
     enabled: bool(data.enabled ?? true, 'Enabled'),
     time,
-    days: [...new Set(days)].sort((a, b) => a - b), // 0 = Monday ... 6 = Sunday
+    repeat,
+    days,
+    date,
     devices: devices === 'all' ? 'all' : [...devices],
+    groups,
     action,
     then,
     app: null,
     input: null,
+    item: null,
   };
   if (action === 'open_app' || then === 'app') {
     const app = obj(data.app, 'App');
@@ -190,6 +265,12 @@ export function validateSchedule(data, deviceIds) {
     sched.app = { id, name: str(app.name ?? '', 'App name') || id };
   }
   if (action === 'input' || then === 'input') sched.input = choice(data.input, Object.keys(INPUTS), 'Input');
+  if (action === 'jellyfin' || then === 'jellyfin') {
+    const item = data.item && typeof data.item === 'object' ? data.item : {};
+    const id = str(item.id ?? '', 'Jellyfin item', 100);
+    if (!id) throw new ValidationError('Choose what to play from Jellyfin');
+    sched.item = { id, name: str(item.name ?? '', 'Jellyfin item name', 200) || id };
+  }
   sched.name = str(data.name ?? '', 'Name') || describeSchedule(sched);
   return sched;
 }
@@ -211,18 +292,25 @@ export class Store extends EventEmitter {
   constructor(file) {
     super();
     this.file = file;
-    this.data = { settings: clone(DEFAULT_SETTINGS), devices: [], schedules: [] };
+    this.data = { instance_id: null, settings: clone(DEFAULT_SETTINGS), devices: [], schedules: [] };
     if (fs.existsSync(file)) {
       try {
         const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+        this.data.instance_id = saved.instance_id || null;
         this.data.settings = deepMerge(DEFAULT_SETTINGS, saved.settings);
-        this.data.devices = saved.devices || [];
-        this.data.schedules = (saved.schedules || []).map((sc) => migrateSchedule(sc, this.data.settings.target_app));
+        this.data.devices = (saved.devices || []).map((d) => ({ color: null, group: null, ...d }));
+        this.data.schedules = (saved.schedules || []).map((sc) => upgradeSchedule(sc, this.data.settings.target_app));
       } catch (e) {
         // Keep a copy of an unreadable file rather than silently overwriting it.
         fs.copyFileSync(file, file + '.unreadable');
       }
     }
+    // Identifies this copy of the app to other copies on the network.
+    if (!this.data.instance_id) this.data.instance_id = crypto.randomBytes(8).toString('hex');
+  }
+
+  get instanceId() {
+    return this.data.instance_id;
   }
 
   save(section) {
@@ -273,6 +361,8 @@ export class Store extends EventEmitter {
       keepawake_enabled: true,
       interval_minutes: null, // null = use the global interval
       held_off: false,
+      color: null, // card color, one of CARD_COLORS (null = default)
+      group: null, // e.g. "Lobby"
     };
     this.data.devices.push(device);
     this.save('devices');
@@ -292,6 +382,8 @@ export class Store extends EventEmitter {
       next.interval_minutes = patch.interval_minutes === null ? null : int(patch.interval_minutes, 1, 1440, 'Ping interval');
     }
     if ('held_off' in patch) next.held_off = bool(patch.held_off, 'held_off');
+    if ('color' in patch) next.color = patch.color === null ? null : choice(patch.color, CARD_COLORS, 'Card color');
+    if ('group' in patch) next.group = patch.group === null ? null : (str(patch.group, 'Group', 40) || null);
     Object.assign(d, next);
     this.save('devices');
     return clone(d);
@@ -304,7 +396,7 @@ export class Store extends EventEmitter {
       if (Array.isArray(s.devices)) s.devices = s.devices.filter((d) => d !== id);
     }
     // A schedule whose TVs have all been removed would otherwise be invalid.
-    this.data.schedules = this.data.schedules.filter((s) => s.devices === 'all' || s.devices.length);
+    this.data.schedules = this.data.schedules.filter((s) => s.devices === 'all' || s.devices.length || s.groups?.length);
     this.save('devices');
     return this.data.devices.length !== before;
   }
@@ -321,6 +413,28 @@ export class Store extends EventEmitter {
 
   deviceIds() {
     return new Set(this.data.devices.map((d) => d.id));
+  }
+
+  /** Group names in use, sorted. */
+  groups() {
+    return [...new Set(this.data.devices.map((d) => d.group).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  }
+
+  /** The TVs a schedule applies to right now. */
+  scheduleTargets(sched) {
+    if (sched.devices === 'all') return this.devices();
+    const ids = new Set(sched.devices);
+    const groups = new Set(sched.groups || []);
+    return this.devices().filter((d) => ids.has(d.id) || (d.group && groups.has(d.group)));
+  }
+
+  /** Turn off a one-time schedule after it has run. */
+  finishOnce(id) {
+    const s = this.data.schedules.find((x) => x.id === id);
+    if (s && s.repeat === 'once' && s.enabled) {
+      s.enabled = false;
+      this.save('schedules');
+    }
   }
 
   addSchedule(data) {
