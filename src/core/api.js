@@ -3,11 +3,11 @@
 
 import * as discovery from './discovery.js';
 import { EcpClient, EcpError } from './ecp.js';
-import { KEEPALIVE_KEYS, SCHEDULE_ACTIONS, ValidationError } from './store.js';
+import { INPUTS, KEEPALIVE_KEYS, SCHEDULE_ACTIONS, SCHEDULE_THEN, ValidationError, describeSchedule } from './store.js';
 
 const DEVICE_COMMANDS = new Set([
-  'ping', 'refresh', 'power_on', 'power_on_launch', 'power_off',
-  'launch_target', 'home', 'input_hdmi1', 'input_hdmi2', 'input_hdmi3', 'input_hdmi4',
+  'ping', 'refresh', 'power_on', 'power_on_launch', 'power_off', 'launch_target', 'home',
+  ...Object.keys(INPUTS).map((k) => `input_${k}`),
 ]);
 
 class ApiError extends Error {
@@ -41,10 +41,15 @@ export function createApi(store, engine, { discover = discovery.discover, appInf
       server_time: engine.clock(),
       settings,
       devices: store.devices().map((d) => deviceView(d, settings)),
-      schedules: store.schedules(),
+      schedules: store.schedules().map((s) => ({ ...s, summary: describeSchedule(s) })),
       log: engine.recentLog(),
       app: appInfo(),
-      options: { keepalive_keys: KEEPALIVE_KEYS, schedule_actions: SCHEDULE_ACTIONS },
+      options: {
+        keepalive_keys: KEEPALIVE_KEYS,
+        schedule_actions: SCHEDULE_ACTIONS,
+        schedule_then: SCHEDULE_THEN,
+        inputs: Object.fromEntries(Object.entries(INPUTS).map(([k, v]) => [k, v.label])),
+      },
     };
   });
 
@@ -117,6 +122,16 @@ export function createApi(store, engine, { discover = discovery.discover, appInf
     } catch (e) {
       throw new ApiError(502, e.message);
     }
+  });
+
+  // Apps installed on the TVs (combined), for choosing what a schedule opens.
+  route('GET', '/api/apps', async () => {
+    const target = store.settings().target_app;
+    const lists = await Promise.all(store.devices().map((d) => makeClient(d.host).apps().catch(() => [])));
+    const apps = new Map([[target.id, { id: target.id, name: target.name }]]);
+    for (const a of lists.flat()) if (a.type === 'appl' && !apps.has(a.id)) apps.set(a.id, { id: a.id, name: a.name });
+    const [first, ...rest] = apps.values();
+    return { apps: [first, ...rest.sort((a, b) => a.name.localeCompare(b.name))], target_id: target.id };
   });
 
   route('POST', '/api/schedules', (body) => store.addSchedule(body));

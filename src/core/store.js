@@ -34,17 +34,57 @@ export const KEEPALIVE_KEYS = [
   'VolumeDown', 'VolumeMute', 'VolumeUp',
 ];
 
+// TV inputs the app can switch to (ECP key names).
+export const INPUTS = {
+  hdmi1: { key: 'InputHDMI1', label: 'HDMI 1' },
+  hdmi2: { key: 'InputHDMI2', label: 'HDMI 2' },
+  hdmi3: { key: 'InputHDMI3', label: 'HDMI 3' },
+  hdmi4: { key: 'InputHDMI4', label: 'HDMI 4' },
+  av1: { key: 'InputAV1', label: 'AV' },
+  tuner: { key: 'InputTuner', label: 'Live TV (antenna)' },
+};
+
 export const SCHEDULE_ACTIONS = {
   power_on: 'Turn on',
-  power_on_launch: 'Turn on and open target app',
   power_off: 'Turn off',
-  launch_target: 'Open target app',
+  open_app: 'Open an app',
+  input: 'Switch input',
   home: 'Go to Home screen',
-  input_hdmi1: 'Switch to HDMI 1',
-  input_hdmi2: 'Switch to HDMI 2',
-  input_hdmi3: 'Switch to HDMI 3',
-  input_hdmi4: 'Switch to HDMI 4',
 };
+
+// What a "Turn on" schedule does once the TV is on.
+export const SCHEDULE_THEN = {
+  nothing: 'Nothing (whatever was showing last)',
+  app: 'Open an app',
+  input: 'Switch to an input',
+  home: 'Go to Home screen',
+};
+
+/** One-line description, e.g. "Turn on, then open Jellyfin". */
+export function describeSchedule(s) {
+  const step = (kind) => ({
+    app: `open ${s.app?.name || s.app?.id}`,
+    input: `switch to ${INPUTS[s.input]?.label ?? s.input}`,
+    home: 'go to the Home screen',
+  }[kind]);
+  switch (s.action) {
+    case 'power_on': return s.then && s.then !== 'nothing' ? `Turn on, then ${step(s.then)}` : 'Turn on';
+    case 'power_off': return 'Turn off';
+    case 'open_app': return `Open ${s.app?.name || s.app?.id}`;
+    case 'input': return `Switch to ${INPUTS[s.input]?.label ?? s.input}`;
+    case 'home': return 'Go to the Home screen';
+    default: return s.action;
+  }
+}
+
+/** Convert schedules saved by version 1.0 to the current format. */
+export function migrateSchedule(s, targetApp) {
+  const target = { id: targetApp.id, name: targetApp.name };
+  if (s.action === 'power_on_launch') return { ...s, action: 'power_on', then: 'app', app: target };
+  if (s.action === 'launch_target') return { ...s, action: 'open_app', app: target };
+  if (/^input_hdmi[1-4]$/.test(s.action)) return { ...s, action: 'input', input: s.action.slice(6) };
+  return s;
+}
 
 export class ValidationError extends Error {}
 
@@ -131,14 +171,27 @@ export function validateSchedule(data, deviceIds) {
     if (unknown !== undefined) throw new ValidationError(`Unknown TV: ${unknown}`);
   }
   const action = choice(data.action, Object.keys(SCHEDULE_ACTIONS), 'Action');
-  return {
-    name: str(data.name ?? '', 'Name') || SCHEDULE_ACTIONS[action],
+  const then = action === 'power_on' ? choice(data.then ?? 'nothing', Object.keys(SCHEDULE_THEN), 'Then') : 'nothing';
+  const sched = {
+    name: '',
     enabled: bool(data.enabled ?? true, 'Enabled'),
     time,
     days: [...new Set(days)].sort((a, b) => a - b), // 0 = Monday ... 6 = Sunday
     devices: devices === 'all' ? 'all' : [...devices],
     action,
+    then,
+    app: null,
+    input: null,
   };
+  if (action === 'open_app' || then === 'app') {
+    const app = obj(data.app, 'App');
+    const id = str(app.id ?? '', 'App', 50);
+    if (!id) throw new ValidationError('Pick an app');
+    sched.app = { id, name: str(app.name ?? '', 'App name') || id };
+  }
+  if (action === 'input' || then === 'input') sched.input = choice(data.input, Object.keys(INPUTS), 'Input');
+  sched.name = str(data.name ?? '', 'Name') || describeSchedule(sched);
+  return sched;
 }
 
 function deepMerge(base, extra) {
@@ -164,7 +217,7 @@ export class Store extends EventEmitter {
         const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
         this.data.settings = deepMerge(DEFAULT_SETTINGS, saved.settings);
         this.data.devices = saved.devices || [];
-        this.data.schedules = saved.schedules || [];
+        this.data.schedules = (saved.schedules || []).map((sc) => migrateSchedule(sc, this.data.settings.target_app));
       } catch (e) {
         // Keep a copy of an unreadable file rather than silently overwriting it.
         fs.copyFileSync(file, file + '.unreadable');

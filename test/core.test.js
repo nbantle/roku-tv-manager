@@ -9,7 +9,7 @@ import { parseCidr, parseSsdpLocation } from '../src/core/discovery.js';
 import { EcpClient, EcpError } from '../src/core/ecp.js';
 import { Engine, describeStatus } from '../src/core/engine.js';
 import { createRemoteServer } from '../src/core/remote.js';
-import { Store, ValidationError } from '../src/core/store.js';
+import { Store, ValidationError, describeSchedule, migrateSchedule } from '../src/core/store.js';
 import { FakeRoku } from './fake-roku.js';
 
 let tmp, store, roku, clock, now, engine, device;
@@ -195,6 +195,49 @@ describe('schedules', () => {
     assert.throws(() => store.addSchedule({ time: '08:00', days: [1], action: 'power_on', devices: ['nope'] }), ValidationError);
   });
 
+  test('turn on, then switch to an input', async () => {
+    roku.powerMode = 'DisplayOff';
+    roku.app = ['592369', 'Jellyfin', 'appl'];
+    const s = store.addSchedule({ time: '08:00', days: [6], action: 'power_on', then: 'input', input: 'hdmi2' });
+    assert.equal(s.name, 'Turn on, then switch to HDMI 2');
+    engine.runSchedule(s);
+    await engine.idle();
+    assert.deepEqual(roku.presses, ['PowerOn', 'InputHDMI2']);
+    assert.equal(store.device(device.id).held_off, false);
+  });
+
+  test('turn on, then open a chosen app', async () => {
+    roku.powerMode = 'Ready';
+    const s = store.addSchedule({ time: '08:00', days: [6], action: 'power_on', then: 'app', app: { id: '12', name: 'Netflix' } });
+    engine.runSchedule(s);
+    await engine.idle();
+    assert.deepEqual(roku.presses, ['PowerOn']);
+    assert.deepEqual(roku.launches, ['12']);
+  });
+
+  test('switch input and open app on their own', async () => {
+    engine.runSchedule(store.addSchedule({ time: '08:00', days: [6], action: 'input', input: 'tuner' }));
+    engine.runSchedule(store.addSchedule({ time: '09:00', days: [6], action: 'open_app', app: { id: '592369', name: 'Jellyfin' } }));
+    await engine.idle();
+    assert.deepEqual(roku.presses, ['InputTuner']);
+    assert.deepEqual(roku.launches, ['592369']);
+  });
+
+  test('follow-up step needs its app or input', () => {
+    assert.throws(() => store.addSchedule({ time: '08:00', days: [1], action: 'power_on', then: 'app' }), ValidationError);
+    assert.throws(() => store.addSchedule({ time: '08:00', days: [1], action: 'input', input: 'hdmi9' }), ValidationError);
+    // "then" is ignored for anything but Turn on
+    assert.equal(store.addSchedule({ time: '08:00', days: [1], action: 'power_off', then: 'home' }).then, 'nothing');
+  });
+
+  test('version 1.0 schedules are converted', () => {
+    const target = { id: '592369', name: 'Jellyfin' };
+    const a = migrateSchedule({ action: 'power_on_launch' }, target);
+    assert.deepEqual([a.action, a.then, a.app], ['power_on', 'app', target]);
+    assert.equal(describeSchedule(migrateSchedule({ action: 'input_hdmi3' }, target)), 'Switch to HDMI 3');
+    assert.equal(describeSchedule(migrateSchedule({ action: 'launch_target' }, target)), 'Open Jellyfin');
+  });
+
   test('removing a TV cleans up its schedules', () => {
     store.addSchedule({ time: '08:00', days: [1], action: 'power_on', devices: [device.id] });
     store.removeDevice(device.id);
@@ -231,6 +274,17 @@ describe('API', () => {
     const r = await api('POST', `/api/devices/${device.id}/command`, { command: 'input_hdmi1' });
     assert.deepEqual([r.status, r.body.message], [200, 'Switched to HDMI 1']);
     assert.deepEqual(roku.presses, ['InputHDMI1']);
+  });
+
+  test('apps list combines TVs and puts the target app first', async () => {
+    store.updateSettings({ target_app: { id: '999', name: 'Zeta' } });
+    const r = await api('GET', '/api/apps');
+    assert.deepEqual(r.body.apps.map((a) => a.id), ['999', '592369']);
+  });
+
+  test('extra inputs from the card menu', async () => {
+    const r = await api('POST', `/api/devices/${device.id}/command`, { command: 'input_av1' });
+    assert.equal(r.body.message, 'Switched to AV');
   });
 
   test('bad settings', async () => {

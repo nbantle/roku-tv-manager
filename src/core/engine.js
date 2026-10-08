@@ -2,13 +2,12 @@
 
 import { EventEmitter } from 'node:events';
 import { EcpClient, EcpError } from './ecp.js';
-import { SCHEDULE_ACTIONS } from './store.js';
+import { INPUTS, describeSchedule } from './store.js';
 
 export const STARTUP_GRACE_SECONDS = 15;
 const KEY_GAP_MS = 400;
-const LAUNCH_AFTER_POWER_ON_MS = 6000;
-
-const INPUT_KEYS = { input_hdmi1: 'InputHDMI1', input_hdmi2: 'InputHDMI2', input_hdmi3: 'InputHDMI3', input_hdmi4: 'InputHDMI4' };
+const POWER_ON_WAIT_TRIES = 20; // check once a second for up to 20 s
+const SETTLE_AFTER_POWER_ON_MS = 3000; // a TV that just woke up needs a moment before it takes an app/input change
 const PLAYBACK = { play: 'Playing', pause: 'Paused', buffer: 'Buffering' };
 
 /** Turn raw ECP query results into a status the UI can show. */
@@ -245,7 +244,7 @@ export class Engine extends EventEmitter {
           await client.keypress('PowerOn');
           result = 'TV was off — turned it on';
           if (ka.when_off === 'power_on_launch') {
-            await this.sleep(LAUNCH_AFTER_POWER_ON_MS);
+            await this.waitUntilOn(client, true);
             await client.launch(target.id);
             result += ` and opened ${target.name}`;
           }
@@ -274,35 +273,62 @@ export class Engine extends EventEmitter {
 
   // ---------- commands ----------
 
-  async runCommand(device, command, source = 'Manual') {
+  /** After PowerOn, wait until the TV reports it's on (and give it a moment to settle). */
+  async waitUntilOn(client, wasOff) {
+    for (let i = 0; i < POWER_ON_WAIT_TRIES; i++) {
+      const info = await client.deviceInfo().catch(() => null);
+      if (info && (info['power-mode'] || 'PowerOn') === 'PowerOn') break;
+      await this.sleep(1000);
+    }
+    if (wasOff) await this.sleep(SETTLE_AFTER_POWER_ON_MS);
+  }
+
+  async isOn(client) {
+    return client.deviceInfo().then((i) => (i['power-mode'] || 'PowerOn') === 'PowerOn').catch(() => false);
+  }
+
+  /**
+   * Commands: ping, refresh, power_on, power_on_launch, power_off, home,
+   * launch_target, open_app (opts.app = {id, name}), input_<hdmi1|...|tuner>.
+   */
+  async runCommand(device, command, source = 'Manual', opts = {}) {
     const target = this.store.settings().target_app;
     const client = this.clientFactory(device.host);
 
     if (command === 'ping') return this.keepAwake(device, true);
     if (command === 'refresh') return (await this.pollDevice(device)).activity;
 
+    const openApp = async (app) => {
+      await client.launch(app.id);
+      return `Opened ${app.name || app.id}`;
+    };
+
     let message;
     try {
-      if (command === 'power_on') {
+      if (command === 'power_on' || command === 'power_on_launch') {
+        const wasOn = command === 'power_on_launch' && await this.isOn(client);
         await client.keypress('PowerOn');
         message = 'Turned on';
-      } else if (command === 'power_on_launch') {
-        await client.keypress('PowerOn');
-        await this.sleep(LAUNCH_AFTER_POWER_ON_MS);
-        await client.launch(target.id);
-        message = `Turned on and opened ${target.name}`;
+        if (command === 'power_on_launch') {
+          await this.waitUntilOn(client, !wasOn);
+          message += ` and opened ${target.name}`;
+          await client.launch(target.id);
+        }
       } else if (command === 'power_off') {
         await client.keypress('PowerOff');
         message = 'Turned off';
       } else if (command === 'launch_target') {
-        await client.launch(target.id);
-        message = `Opened ${target.name}`;
+        message = await openApp(target);
+      } else if (command === 'open_app') {
+        if (!opts.app?.id) throw new Error('No app chosen');
+        message = await openApp(opts.app);
       } else if (command === 'home') {
         await client.keypress('Home');
         message = 'Went to Home screen';
-      } else if (INPUT_KEYS[command]) {
-        await client.keypress(INPUT_KEYS[command]);
-        message = `Switched to HDMI ${command.slice(-1)}`;
+      } else if (command.startsWith('input_') && INPUTS[command.slice(6)]) {
+        const input = INPUTS[command.slice(6)];
+        await client.keypress(input.key);
+        message = `Switched to ${input.label}`;
       } else {
         throw new Error(`Unknown command: ${command}`);
       }
@@ -324,6 +350,22 @@ export class Engine extends EventEmitter {
     return message;
   }
 
+  /** Carry out one schedule on one TV. */
+  async runScheduleOn(device, sched, source) {
+    const client = this.clientFactory(device.host);
+    const followUp = sched.action === 'power_on' && sched.then && sched.then !== 'nothing';
+    const wasOn = followUp && await this.isOn(client);
+    const first = { power_on: 'power_on', power_off: 'power_off', open_app: 'open_app', input: `input_${sched.input}`, home: 'home' }[sched.action];
+
+    await this.runCommand(device, first, source, { app: sched.app });
+
+    if (followUp) {
+      await this.waitUntilOn(client, !wasOn);
+      const next = { app: 'open_app', input: `input_${sched.input}`, home: 'home' }[sched.then];
+      await this.runCommand(device, next, source, { app: sched.app });
+    }
+  }
+
   // ---------- scheduler ----------
 
   checkSchedules(devices) {
@@ -343,9 +385,9 @@ export class Engine extends EventEmitter {
   runSchedule(sched, devices = this.store.devices()) {
     const targets = devices.filter((d) => sched.devices === 'all' || sched.devices.includes(d.id));
     const source = `Schedule “${sched.name}”`;
-    this.addLog('info', `${source} running: ${SCHEDULE_ACTIONS[sched.action]} on ${targets.length} TV(s)`);
+    this.addLog('info', `${source} running: ${describeSchedule(sched)} on ${targets.length} TV(s)`);
     for (const d of targets) {
-      this.submit(`schedule:${sched.id}:${d.id}`, () => this.runCommand(d, sched.action, source).catch((e) => {
+      this.submit(`schedule:${sched.id}:${d.id}`, () => this.runScheduleOn(d, sched, source).catch((e) => {
         if (!(e instanceof EcpError)) throw e; // ECP errors are already logged
       }));
     }

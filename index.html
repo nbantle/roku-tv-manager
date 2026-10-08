@@ -23,10 +23,12 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text);
     font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
   header { background: var(--panel); border-bottom: 1px solid var(--line); }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+  .wrap { margin: 0 auto; padding: 0 16px; }
+  #tab-schedules, #tab-settings, #tab-activity { max-width: 1180px; }
   .top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 14px 0 10px; }
   h1 { font-size: 20px; margin: 0; margin-right: auto; }
   h2 { font-size: 17px; margin: 0 0 12px; }
@@ -66,8 +68,8 @@
   .switch input:checked + .track::after { transform: translateX(16px); }
   .switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow);
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--card-min, 380px)), 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow);
     display: flex; flex-direction: column; gap: 10px; }
   .card-head { display: flex; align-items: flex-start; gap: 10px; }
   .card-head .name { font-weight: 700; font-size: 16px; }
@@ -83,7 +85,12 @@
   .kv dt { color: var(--muted); }
   .kv dd { margin: 0; }
   .err-text { color: var(--err); font-size: 13px; }
-  .actions { display: flex; gap: 6px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 10px; }
+  .actions { display: flex; gap: 5px; flex-wrap: nowrap; align-items: center; border-top: 1px solid var(--line); padding-top: 10px; }
+  .actions > * { flex-shrink: 0; }
+  .actions .btn { padding: 6px 8px; font-size: 13.5px; }
+  .actions .more { margin-left: auto; }
+  /* Window narrower than one card (phones): let the buttons wrap instead of overflowing. */
+  .grid.tight .actions { flex-wrap: wrap; }
   details.menu { position: relative; }
   details.menu > summary { list-style: none; }
   details.menu > summary::-webkit-details-marker { display: none; }
@@ -107,8 +114,11 @@
   .checks { display: flex; gap: 6px 14px; flex-wrap: wrap; }
   .checks label { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
   .radio-list label { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; }
+  .sched-row { display: grid; grid-template-columns: 110px 1fr; gap: 6px 16px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .sched-label { font-weight: 600; }
+  @media (max-width: 600px) { .sched-row { grid-template-columns: 1fr; } }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
-  @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } .grid { grid-template-columns: 1fr; } }
+  @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } }
 
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg);
     padding: 9px 16px; border-radius: 10px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: calc(100% - 32px); z-index: 20; }
@@ -166,19 +176,33 @@
     </div>
     <div class="panel">
       <h2 id="sched-form-title">Add a schedule</h2>
-      <form id="sched-form">
-        <div class="two-col">
-          <label class="field"><span>Name</span><input type="text" name="name" placeholder="e.g. Lobby TVs on for Sunday"></label>
-          <label class="field"><span>Action</span><select name="action" id="sched-action"></select></label>
-          <label class="field"><span>Time</span><input type="time" name="time" required value="08:00"></label>
-          <div class="field"><span style="display:block;font-weight:600;margin-bottom:4px">Days</span>
+      <form id="sched-form" class="sched-form">
+        <div class="sched-row">
+          <span class="sched-label">What</span>
+          <div class="row">
+            <select name="action" id="sched-action" aria-label="Action"></select>
+            <span id="sched-then-wrap" class="row"><span class="muted">then</span><select name="then" id="sched-then" aria-label="Then"></select></span>
+            <span id="sched-app-wrap" class="row"><select name="app" id="sched-app" aria-label="App"></select>
+              <button class="btn" type="button" id="sched-apps-reload" title="Reload the list of apps from the TVs" aria-label="Reload apps">↻</button></span>
+            <select name="input" id="sched-input" aria-label="Input"></select>
+          </div>
+        </div>
+        <div class="sched-row">
+          <span class="sched-label">When</span>
+          <div class="row">
+            <input type="time" name="time" required value="08:00" aria-label="Time">
             <div class="days" id="sched-days"></div>
           </div>
         </div>
-        <div class="field"><span style="display:block;font-weight:600;margin-bottom:4px">TVs</span>
+        <div class="sched-row">
+          <span class="sched-label">Which TVs</span>
           <div class="checks" id="sched-devices"></div>
         </div>
-        <div class="row">
+        <div class="sched-row">
+          <span class="sched-label">Name</span>
+          <input type="text" name="name" placeholder="Optional, e.g. Lobby TVs on for Sunday" style="width:100%;max-width:420px">
+        </div>
+        <div class="row" style="margin-top:18px">
           <button class="btn primary" id="sched-submit">Add schedule</button>
           <button class="btn" type="button" id="sched-cancel" hidden>Cancel edit</button>
         </div>
@@ -414,15 +438,15 @@ function cardHtml(d) {
       ${st?.power === "on"
         ? `<button class="btn" data-cmd="power_off">Turn off</button>`
         : `<button class="btn" data-cmd="power_on" ${offline ? "disabled" : ""}>Turn on</button>`}
-      <button class="btn" data-cmd="launch_target" ${st?.power !== "on" ? "disabled" : ""}>Open ${esc(t.name)}</button>
+      <button class="btn" data-cmd="launch_target" ${st?.power !== "on" ? "disabled" : ""} title="Open ${esc(t.name)}">Open ${esc(t.name)}</button>
       <details class="menu" data-menu="input-${esc(d.id)}">
         <summary class="btn" ${st?.power !== "on" ? 'style="opacity:.5;pointer-events:none"' : ""}>Input ▾</summary>
         <div class="menu-items">
-          ${[1,2,3,4].map(n => `<button data-cmd="input_hdmi${n}">HDMI ${n}</button>`).join("")}
+          ${Object.entries(state.options.inputs).map(([k, label]) => `<button data-cmd="input_${k}">${esc(label)}</button>`).join("")}
           <button data-cmd="home">Home screen</button>
         </div>
       </details>
-      <details class="menu right" data-menu="more-${esc(d.id)}" style="margin-left:auto">
+      <details class="menu right more" data-menu="more-${esc(d.id)}">
         <summary class="btn" aria-label="More options">⋯</summary>
         <div class="menu-items">
           <button data-act="rename">Rename…</button>
@@ -460,7 +484,24 @@ function renderCards() {
       if (checked) checked.dataset.ts = d.status.checked_at;
     }
   });
+  fitCardWidth();
 }
+
+// Cards are as narrow as their button row allows, so as many TVs as possible
+// fit across the window; the grid then stretches them to fill each row.
+function fitCardWidth() {
+  const card = $("#tv-grid .card");
+  if (!card) return;
+  const row = card.querySelector(".actions");
+  const items = [...row.children];
+  const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+  const buttons = items.reduce((sum, el) => sum + el.getBoundingClientRect().width, 0) + gap * (items.length - 1);
+  const needed = Math.ceil(buttons + (card.getBoundingClientRect().width - row.clientWidth)) + 2;
+  const grid = $("#tv-grid");
+  if (grid.style.getPropertyValue("--card-min") !== needed + "px") grid.style.setProperty("--card-min", needed + "px");
+  grid.classList.toggle("tight", grid.clientWidth < needed);
+}
+window.addEventListener("resize", fitCardWidth);
 
 function deviceName(id) { return state.devices.find(d => d.id === id)?.name ?? "(removed TV)"; }
 
@@ -478,17 +519,16 @@ function timeText(hhmm) {
 
 function renderSchedules() {
   const table = $("#sched-table");
-  const actions = state.options.schedule_actions;
+  const o = state.options;
   if (!state.schedules.length) {
     table.innerHTML = `<tr><td class="muted">No schedules yet. Add one below, for example turning the lobby TVs on at 8:00 AM on Sundays and off at 1:00 PM.</td></tr>`;
   } else {
-    table.innerHTML = `<tr><th>On</th><th>Name</th><th>When</th><th>Action</th><th>TVs</th><th></th></tr>` +
+    table.innerHTML = `<tr><th>On</th><th>Schedule</th><th>When</th><th>TVs</th><th></th></tr>` +
       [...state.schedules].sort((a, b) => a.time.localeCompare(b.time)).map(s => `
       <tr data-sched="${esc(s.id)}">
         <td><label class="switch"><input type="checkbox" data-sact="toggle" ${s.enabled ? "checked" : ""} aria-label="Enabled"><span class="track"></span></label></td>
-        <td>${esc(s.name)}</td>
+        <td><b>${esc(s.name)}</b>${s.name !== s.summary ? `<div class="muted small">${esc(s.summary)}</div>` : ""}</td>
         <td style="white-space:nowrap">${timeText(s.time)}<div class="muted small">${daysText(s.days)}</div></td>
-        <td>${esc(actions[s.action])}</td>
         <td>${s.devices === "all" ? "All TVs" : s.devices.map(id => esc(deviceName(id))).join(", ")}</td>
         <td><div class="row" style="justify-content:flex-end">
           <button class="btn" data-sact="run">Run now</button>
@@ -498,7 +538,12 @@ function renderSchedules() {
   }
   const select = $("#sched-action");
   if (!select.options.length) {
-    select.innerHTML = Object.entries(actions).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("");
+    const opts = (obj) => Object.entries(obj).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("");
+    select.innerHTML = opts(o.schedule_actions);
+    $("#sched-then").innerHTML = opts(o.schedule_then);
+    $("#sched-input").innerHTML = opts(o.inputs);
+    fillAppChoices();
+    updateScheduleFields();
     $("#sched-days").innerHTML = DAY_NAMES.map((n, i) => `<label><input type="checkbox" name="day" value="${i}" checked> ${n}</label>`).join("");
   }
   const box = $("#sched-devices");
@@ -698,6 +743,39 @@ $("#app-picker").addEventListener("change", e => {
 
 // Schedules
 const schedForm = $("#sched-form");
+let appChoices = null; // [{id, name}] from the TVs, loaded on demand
+
+function updateScheduleFields() {
+  const action = schedForm.action.value, then = schedForm.then.value;
+  $("#sched-then-wrap").hidden = action !== "power_on";
+  const needs = (kind) => action === (kind === "app" ? "open_app" : "input") || (action === "power_on" && then === kind);
+  $("#sched-app-wrap").hidden = !needs("app");
+  $("#sched-input").hidden = !needs("input");
+  if (needs("app") && appChoices === null) loadAppChoices();
+}
+
+function fillAppChoices(keep) {
+  const sel = $("#sched-app");
+  const current = keep ?? (sel.value ? { id: sel.value, name: sel.selectedOptions[0]?.textContent } : null);
+  const target = state.settings.target_app;
+  const list = [...(appChoices ?? [{ id: target.id, name: target.name }])];
+  if (current && !list.some(a => a.id === current.id)) list.push(current);
+  sel.innerHTML = list.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
+  if (current) sel.value = current.id;
+}
+
+async function loadAppChoices() {
+  appChoices = appChoices ?? [];
+  const btn = $("#sched-apps-reload");
+  btn.disabled = true;
+  try { appChoices = (await api("GET", "/api/apps")).apps; fillAppChoices(); }
+  catch (err) { toast(err.message, true); }
+  btn.disabled = false;
+}
+
+schedForm.action.addEventListener("change", updateScheduleFields);
+schedForm.then.addEventListener("change", updateScheduleFields);
+$("#sched-apps-reload").addEventListener("click", loadAppChoices);
 $("#sched-devices").addEventListener("change", e => {
   if (e.target.name === "dev_all") $$("input[name=dev]", schedForm).forEach(i => i.disabled = e.target.checked);
 });
@@ -707,6 +785,8 @@ function resetScheduleForm() {
   $$("input[name=day]", schedForm).forEach(i => i.checked = true);
   $("input[name=dev_all]", schedForm).checked = true;
   $$("input[name=dev]", schedForm).forEach(i => { i.checked = false; i.disabled = true; });
+  fillAppChoices({ id: state.settings.target_app.id, name: state.settings.target_app.name });
+  updateScheduleFields();
   $("#sched-form-title").textContent = "Add a schedule";
   $("#sched-submit").textContent = "Add schedule";
   $("#sched-cancel").hidden = true;
@@ -718,6 +798,9 @@ schedForm.addEventListener("submit", async e => {
   const payload = {
     name: schedForm.name.value,
     action: schedForm.action.value,
+    then: schedForm.then.value,
+    app: { id: schedForm.app.value, name: schedForm.app.selectedOptions[0]?.textContent ?? "" },
+    input: schedForm.input.value,
     time: schedForm.time.value,
     days: $$("input[name=day]:checked", schedForm).map(i => Number(i.value)),
     devices: all ? "all" : $$("input[name=dev]:checked", schedForm).map(i => i.value),
@@ -742,8 +825,13 @@ $("#sched-table").addEventListener("click", async e => {
       if (confirm(`Delete schedule “${s.name}”?`)) await api("DELETE", `/api/schedules/${id}`);
     } else if (b.dataset.sact === "edit") {
       editingSchedule = id;
-      schedForm.name.value = s.name;
+      // A name that was generated from the action is left blank so it updates with it.
+      schedForm.name.value = s.name === s.summary ? "" : s.name;
       schedForm.action.value = s.action;
+      schedForm.then.value = s.then || "nothing";
+      if (s.input) schedForm.input.value = s.input;
+      fillAppChoices(s.app ?? undefined);
+      updateScheduleFields();
       schedForm.time.value = s.time;
       $$("input[name=day]", schedForm).forEach(i => i.checked = s.days.includes(Number(i.value)));
       const all = s.devices === "all";

@@ -1,7 +1,7 @@
 {
   "name": "roku-tv-manager",
   "productName": "Roku TV Manager",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Monitors the Roku TVs on your network, keeps them awake, and turns them on and off on a schedule.",
   "author": "Nate Bantle",
   "license": "UNLICENSED",

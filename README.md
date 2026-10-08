@@ -5,8 +5,8 @@ A desktop app for Windows and Mac that watches every Roku TV on your network, ke
 - **See every TV at a glance:** on, off or not responding, and what's showing (Jellyfin and whether it's playing, HDMI 1–4, Home screen, screensaver, another app).
 - **Keep-awake pings:** at an interval you choose (for all TVs or per TV), the app presses a harmless remote button so the TV registers activity and doesn't power-save. By default that's volume down then volume up, which leaves the volume where it was.
 - **A TV that's off stays off:** by default a ping is never sent to a TV that's off. Optional settings can turn TVs back on, or bring them back to Jellyfin when someone switches inputs.
-- **Schedules:** turn TVs on or off, open Jellyfin, or switch inputs at set times on set days.
-- **Manual controls:** ping, power, open Jellyfin, switch inputs, Home.
+- **Schedules:** at set times on set days, turn TVs on (and then open any installed app, switch to an input such as HDMI 2 or Live TV, or go Home), turn them off, open an app, or switch inputs.
+- **Manual controls:** ping, power, open Jellyfin, switch inputs (HDMI 1–4, AV, Live TV), Home.
 - **Phone access (optional):** open the same dashboard from a phone's browser.
 - **Activity log** of everything the app saw and did.
 
@@ -65,7 +65,7 @@ The app does its work (pings, schedules, status checks) only while it's running,
 | Keep this computer from sleeping | on | Only while keep-awake is on. |
 | Phone access | off | See section 6. |
 
-Schedules use the clock and time zone of the computer running the app.
+Schedules use the clock and time zone of the computer running the app. A "Turn on, then …" schedule waits until each TV has finished turning on before opening the app or switching the input. The app list in a schedule comes from the apps installed on your TVs (click ↻ to reload it).
 
 ## 6. Phone access
 Turn on **Settings → This computer → Phone access** and the app shows an address such as `http://192.168.1.20:8765`. Open it in the browser on any phone or computer on the same network to see and control the TVs. Anyone on your network who opens that address can control the TVs, so only use it on a network you trust. Never forward that port to the internet.
