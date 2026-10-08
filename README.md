@@ -100,11 +100,4 @@ Code layout:
 - `test/`: tests and a fake Roku TV
 
 ## 9. Making a release
-GitHub builds the downloads. Bump `"version"` in `package.json`, commit, then:
-
-```bash
-git tag v1.0.1
-git push origin main v1.0.1
-```
-
-The **Build and release** workflow runs the tests, builds the Windows and Mac zips, and attaches them to a new release. Every push to `main` also builds both zips (download them from the workflow run's **Artifacts**) without publishing a release.
+GitHub builds the downloads. Bump `"version"` in `package.json` (for example to `1.0.1`), commit, and push to `main`. The **Build and release** workflow runs the tests, builds the Windows and Mac zips, and, because that version hasn't been released yet, publishes release **v1.0.1** with both zips attached. Pushes that don't change the version just build the zips (download them from the workflow run's **Artifacts**) without publishing anything.

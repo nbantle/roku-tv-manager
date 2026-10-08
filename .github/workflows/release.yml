@@ -1,8 +1,8 @@
 # Builds the Windows and Mac apps and attaches them to a GitHub release.
 #
-# To publish a new version: bump "version" in package.json, commit, then push a
-# tag with the same number, e.g.  git tag v1.0.1 && git push origin v1.0.1
-# (or run this workflow by hand from the Actions tab to just build the files).
+# Every push to main builds both apps. If package.json has a version that
+# hasn't been released yet, a release "vX.Y.Z" is published with both zips.
+# So to publish a new version: bump "version" in package.json and push to main.
 name: Build and release
 
 on:
@@ -77,14 +77,33 @@ jobs:
 
   release:
     needs: [windows, mac]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Is this version already released?
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" > /dev/null 2>&1; then
+            echo "v$version is already released; nothing to publish."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/download-artifact@v4
+        if: steps.version.outputs.new == 'true'
         with:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
+        if: steps.version.outputs.new == 'true'
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Roku TV Manager ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             Roku-TV-Manager-*-Windows-x64.zip
             Roku-TV-Manager-*-Mac.zip
